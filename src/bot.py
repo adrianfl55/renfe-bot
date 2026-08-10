@@ -529,25 +529,14 @@ async def finalize_and_start_tracking(message: Message, state: StateContext):
     search_obj.task = task
 
 
-def format_station_slug(name: str) -> str:
-    name = name.strip().lower()
-    name = unicodedata.normalize("NFD", name)
-    name = "".join(c for c in name if unicodedata.category(c) != "Mn")
-    return re.sub(r"[^a-z0-9]+", "-", name).strip("-")
-
-
-def build_buy_keyboard(origin: StationRecord, destination: StationRecord, dep_date: datetime) -> InlineKeyboardMarkup:
-    """Creates inline buttons with prefilled direct link and official Renfe link."""
+def build_buy_keyboard(origin: StationRecord, destination: StationRecord) -> InlineKeyboardMarkup:
+    """Creates inline buttons linking directly to official purchasing portals."""
     markup = InlineKeyboardMarkup()
-    orig_slug = format_station_slug(origin.name)
-    dest_slug = format_station_slug(destination.name)
-    date_str = dep_date.strftime("%d-%m-%Y")
-
-    trainline_url = f"https://www.thetrainline.com/es/search/{orig_slug}/{dest_slug}/{date_str}"
     renfe_url = "https://www.renfe.com/es/es"
+    trainline_url = "https://www.thetrainline.com/es"
 
-    markup.add(InlineKeyboardButton(text=f"⚡ Abrir directo ya rellenado ({origin.name.title()} ➔ {destination.name.title()})", url=trainline_url))
-    markup.add(InlineKeyboardButton(text="🚆 Web Oficial Renfe.com (Si estas con un movil te redirige automáticamente a la app)", url=renfe_url))
+    markup.add(InlineKeyboardButton(text=f"🚆 Renfe.com ({origin.name.title()} ➔ {destination.name.title()})", url=renfe_url))
+    markup.add(InlineKeyboardButton(text="🎫 Trainline (Renfe + Ouigo + Iryo)", url=trainline_url))
     return markup
 
 
@@ -593,7 +582,7 @@ async def run_search_loop(search: TrackedSearch, chat_id: int):
                                                            search.origin,
                                                            search.destination),
                                        parse_mode="Markdown",
-                                       reply_markup=build_buy_keyboard(search.origin, search.destination, search.departure_date))
+                                       reply_markup=build_buy_keyboard(search.origin, search.destination))
             else:
                 await bot.send_message(
                     chat_id,
@@ -610,14 +599,14 @@ async def run_search_loop(search: TrackedSearch, chat_id: int):
                 status_ret_msg = format_initial_train_status(matching_ret, search.destination, search.origin)
                 await bot.send_message(chat_id, f"📌 *[Rastreo #{search.id} - Vuelta]*\n\n" + status_ret_msg, parse_mode="Markdown")
                 available_ret_now = [t for t in matching_ret if t.available]
-                if available_ret_now and search.return_date:
+                if available_ret_now:
                     return_done = True
                     await bot.send_message(chat_id,
                                            get_tickets_message(available_ret_now,
                                                                search.destination,
                                                                search.origin),
                                            parse_mode="Markdown",
-                                           reply_markup=build_buy_keyboard(search.destination, search.origin, search.return_date))
+                                           reply_markup=build_buy_keyboard(search.destination, search.origin))
 
         while not departure_done or not return_done:
             await asyncio.sleep(60)
@@ -632,17 +621,17 @@ async def run_search_loop(search: TrackedSearch, chat_id: int):
                                                                search.origin,
                                                                search.destination),
                                            parse_mode="Markdown",
-                                           reply_markup=build_buy_keyboard(search.origin, search.destination, search.departure_date))
+                                           reply_markup=build_buy_keyboard(search.origin, search.destination))
             if not return_done and return_filter:
                 return_trains = return_filter.filter_rides(trains)
                 return_done = len(return_trains) > 0
-                if return_done and search.return_date:
+                if return_done:
                     await bot.send_message(chat_id,
                                            get_tickets_message(return_trains,
                                                                search.destination,
                                                                search.origin),
                                            parse_mode="Markdown",
-                                           reply_markup=build_buy_keyboard(search.destination, search.origin, search.return_date))
+                                           reply_markup=build_buy_keyboard(search.destination, search.origin))
 
         await bot.send_message(
             chat_id,
