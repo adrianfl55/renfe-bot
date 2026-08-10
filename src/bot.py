@@ -125,7 +125,8 @@ async def search_tickets(message: Message, state: StateContext):
         return
 
     await state.set(SearchStates.origin)
-    await state.add_data(telegram_user_id=message.from_user.id)
+    async with state.data() as data:  # type: ignore
+        data["telegram_user_id"] = message.from_user.id
     await bot.send_message(message.chat.id, msg["start"])
 
 
@@ -143,7 +144,8 @@ async def origin_get(message: Message, state: StateContext):
             msg["station_confirm"].format(origin.station.name.title()),
         )
         await state.set(SearchStates.destination)
-        await state.add_data(origin=origin.station)
+        async with state.data() as data:  # type: ignore
+            data["origin"] = origin.station
         await bot.send_message(message.chat.id, msg["destination"])
 
 
@@ -161,7 +163,8 @@ async def destination_get(message: Message, state: StateContext):
             msg["station_confirm"].format(destination.station.name.title()),
         )
         await state.set(SearchStates.departure_date)
-        await state.add_data(destination=destination.station)
+        async with state.data() as data:  # type: ignore
+            data["destination"] = destination.station
         await bot.send_message(message.chat.id, msg["departure_date"])
 
 
@@ -175,7 +178,8 @@ async def departure_date_get(message: Message, state: StateContext):
     else:
         assert departure_datetime.date is not None
         await state.set(SearchStates.min_departure_time)
-        await state.add_data(departure_date=departure_datetime.date)
+        async with state.data() as data:  # type: ignore
+            data["departure_date"] = departure_datetime.date
         await bot.send_message(message.chat.id, msg["min_departure_time"])
 
 
@@ -187,15 +191,15 @@ async def min_departure_time_get(message: Message, state: StateContext):
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
+        await state.set(SearchStates.max_departure_time)
         async with state.data() as data:  # type: ignore
             dep_date: datetime = data["departure_date"]
             if parsed.time is not None:
                 dep_date = dep_date.replace(hour=parsed.time.hour, minute=parsed.time.minute, second=0)
             else:
                 dep_date = dep_date.replace(hour=0, minute=0, second=0)
-            await state.add_data(departure_date=dep_date)
+            data["departure_date"] = dep_date
 
-        await state.set(SearchStates.max_departure_time)
         await bot.send_message(message.chat.id, msg["max_departure_time"])
 
 
@@ -208,7 +212,9 @@ async def max_departure_time_get(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
         await state.set(SearchStates.needs_return)
-        await state.add_data(max_departure_time=parsed.time)
+        async with state.data() as data:  # type: ignore
+            data["max_departure_time"] = parsed.time
+
         await bot.send_message(message.chat.id, msg["needs_return"])
 
 
@@ -236,7 +242,8 @@ async def return_date_get(message: Message, state: StateContext):
     else:
         assert return_datetime.date is not None
         await state.set(SearchStates.min_return_time)
-        await state.add_data(return_date=return_datetime.date)
+        async with state.data() as data:  # type: ignore
+            data["return_date"] = return_datetime.date
         await bot.send_message(message.chat.id, msg["min_return_time"])
 
 
@@ -248,15 +255,15 @@ async def min_return_time_get(message: Message, state: StateContext):
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
+        await state.set(SearchStates.max_return_time)
         async with state.data() as data:  # type: ignore
             ret_date: datetime = data["return_date"]
             if parsed.time is not None:
                 ret_date = ret_date.replace(hour=parsed.time.hour, minute=parsed.time.minute, second=0)
             else:
                 ret_date = ret_date.replace(hour=0, minute=0, second=0)
-            await state.add_data(return_date=ret_date)
+            data["return_date"] = ret_date
 
-        await state.set(SearchStates.max_return_time)
         await bot.send_message(message.chat.id, msg["max_return_time"])
 
 
@@ -269,7 +276,9 @@ async def max_return_time_get(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
         await state.set(SearchStates.max_price)
-        await state.add_data(max_return_time=parsed.time)
+        async with state.data() as data:  # type: ignore
+            data["max_return_time"] = parsed.time
+
         await bot.send_message(message.chat.id, msg["max_price"])
 
 
@@ -282,7 +291,9 @@ async def ask_for_max_price(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
         await state.set(SearchStates.max_duration_minutes)
-        await state.add_data(max_price=None if parsed.number == 0 else parsed.number)
+        async with state.data() as data:  # type: ignore
+            data["max_price"] = None if parsed.number == 0 else parsed.number
+
         await bot.send_message(message.chat.id, msg["max_duration"])
 
 
@@ -295,15 +306,33 @@ async def get_max_duration(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
         await state.set(SearchStates.searching)
-        await state.add_data(max_duration_minutes=None if parsed.number == 0 else parsed.number)
-        await bot.send_message(message.chat.id, msg["searching"])
         async with state.data() as data:  # type: ignore
+            data["max_duration_minutes"] = None if parsed.number == 0 else parsed.number
             await search_trains(message, state, data)
 
 
 async def search_trains(message: Message, state: StateContext, ctx: Dict[str, Any]):
     departure_done = False
     return_done = ctx.get("return_date", None) is None
+
+    # Send search summary card to user
+    summary = (
+        f"📋 *Resumen de la búsqueda:*\n"
+        f"• *Origen:* {ctx['origin'].name.title()}\n"
+        f"• *Destino:* {ctx['destination'].name.title()}\n"
+        f"• *Salida:* {ctx['departure_date'].strftime('%d/%m/%Y a las %H:%M')}\n"
+        f"• *Hora tope salida:* {ctx['max_departure_time'].strftime('%H:%M') if ctx.get('max_departure_time') else 'Sin límite'}\n"
+    )
+    if ctx.get("return_date"):
+        summary += f"• *Vuelta:* {ctx['return_date'].strftime('%d/%m/%Y a las %H:%M')}\n"
+        summary += f"• *Hora tope vuelta:* {ctx.get('max_return_time').strftime('%H:%M') if ctx.get('max_return_time') else 'Sin límite'}\n"
+    if ctx.get("max_price"):
+        summary += f"• *Precio máx:* {ctx['max_price']} €\n"
+    if ctx.get("max_duration_minutes"):
+        summary += f"• *Duración máx:* {ctx['max_duration_minutes']} min\n"
+
+    summary += "\n🔎 *Rastreando plazas disponibles en Renfe...*"
+    await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
 
     scraper = Scraper(ctx["origin"],
                       ctx["destination"],
