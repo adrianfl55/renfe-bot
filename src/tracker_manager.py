@@ -1,11 +1,14 @@
-"""Manages active background tracking tasks for users."""
+"""Manages active background tracking tasks for users in memory with user and global limits."""
 
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 from models import StationRecord
+
+MAX_USER_TRACKINGS = 3
+MAX_GLOBAL_TRACKINGS = 100
 
 
 @dataclass
@@ -42,15 +45,25 @@ class TrackedSearch:
 
 
 class TrackerManager:
-    """Manages active background tracking tasks for users."""
+    """Manages active background tracking tasks for users in memory with rate limits."""
 
     def __init__(self):
         self._trackings: Dict[int, TrackedSearch] = {}
         self._counter: int = 0
 
+    def can_add_tracking(self, user_id: int) -> Tuple[bool, str]:
+        """Checks if a user or the global server limit is reached."""
+        if len(self._trackings) >= MAX_GLOBAL_TRACKINGS:
+            return False, f"⚠️ Servidor al máximo de capacidad (límite de {MAX_GLOBAL_TRACKINGS} rastreos globales alcanzado). Por favor, inténtalo más tarde."
+
+        user_trackings = self.get_user_trackings(user_id)
+        if len(user_trackings) >= MAX_USER_TRACKINGS:
+            return False, f"⚠️ Has alcanzado el límite máximo de {MAX_USER_TRACKINGS} rastreos activos por usuario. Usa /cancelar para eliminar alguno antes de crear uno nuevo."
+
     def add_tracking(self, search: TrackedSearch) -> int:
-        self._counter += 1
-        search.id = self._counter
+        if search.id <= 0:
+            self._counter += 1
+            search.id = self._counter
         self._trackings[search.id] = search
         return search.id
 

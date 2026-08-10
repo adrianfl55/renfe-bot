@@ -193,6 +193,13 @@ async def cancel_choice_get(message: Message, state: StateContext):
 async def search_tickets(message: Message, state: StateContext):
     """Starts the search process by asking for the origin station."""
     assert message.from_user is not None
+    user_id = message.from_user.id
+
+    can_add, reason = tracker_manager.can_add_tracking(user_id)
+    if not can_add:
+        await bot.send_message(message.chat.id, reason, parse_mode="Markdown")
+        return
+
     current_state = await state.get()
 
     if current_state is not None:
@@ -200,7 +207,7 @@ async def search_tickets(message: Message, state: StateContext):
 
     await state.set(SearchStates.origin)
     async with state.data() as data:  # type: ignore
-        data["telegram_user_id"] = message.from_user.id
+        data["telegram_user_id"] = user_id
     await bot.send_message(message.chat.id, msg["start"])
 
 
@@ -420,6 +427,12 @@ async def finalize_and_start_tracking(message: Message, state: StateContext):
     """Finalizes search configuration and registers tracking task."""
     assert message.from_user is not None
     user_id = message.from_user.id
+
+    can_add, reason = tracker_manager.can_add_tracking(user_id)
+    if not can_add:
+        await state.delete()
+        await bot.send_message(message.chat.id, reason, parse_mode="Markdown")
+        return
 
     async with state.data() as data:  # type: ignore
         search_obj = TrackedSearch(
