@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from pydantic import BaseModel
 from telebot import async_telebot, asyncio_filters
+from telebot.asyncio_handler_backends import BaseMiddleware, CancelUpdate
 from telebot.asyncio_storage import StateMemoryStorage
 from telebot.states import State, StatesGroup
 from telebot.states.asyncio.context import StateContext
@@ -49,23 +50,33 @@ class SearchContext(BaseModel):
 
 ALLOWED_USER_ID = os.getenv("ALLOWED_USER_ID") or os.getenv("ALLOWED_USER_IDS")
 
+
+class AuthMiddleware(BaseMiddleware):
+    """Middleware to restrict bot usage to allowed user IDs if ALLOWED_USER_ID is set."""
+    def __init__(self, bot_instance):
+        super().__init__()
+        self.bot_instance = bot_instance
+        self.update_types = ["message"]
+
+    async def pre_process(self, message: Message, data):
+        if message.text and message.text.strip().startswith(("/id", "/myid")):
+            return
+
+        if ALLOWED_USER_ID:
+            allowed_ids = [uid.strip() for uid in ALLOWED_USER_ID.split(",") if uid.strip()]
+            if message.from_user is None or str(message.from_user.id) not in allowed_ids:
+                await self.bot_instance.send_message(message.chat.id, msg["unauthorized_user"])
+                return CancelUpdate()
+
+    async def post_process(self, message: Message, data, exception):
+        pass
+
+
 TOKEN = get_bot_token()
 state_storage = StateMemoryStorage()  # TODO: Don't use this in production, (idk why, but use redis)
 bot = async_telebot.AsyncTeleBot(TOKEN, state_storage=state_storage)
+bot.setup_middleware(AuthMiddleware(bot))
 print("Ya estoy corriendo! Corre a Telegram e interactúa conmigo con los comandos /start o /help")
-
-
-@bot.middleware_handler(update_types=["message"])
-async def restrict_users(bot_instance, message: Message):
-    """Middleware to restrict bot usage to allowed user IDs if ALLOWED_USER_ID is set."""
-    if message.text and message.text.strip().startswith(("/id", "/myid")):
-        return  # Always allow /id command so users can find their Telegram ID
-
-    if ALLOWED_USER_ID:
-        allowed_ids = [uid.strip() for uid in ALLOWED_USER_ID.split(",") if uid.strip()]
-        if message.from_user is None or str(message.from_user.id) not in allowed_ids:
-            await bot_instance.send_message(message.chat.id, msg["unauthorized_user"])
-            return False
 
 
 @bot.message_handler(commands=["id", "myid"])
