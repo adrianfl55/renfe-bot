@@ -58,43 +58,10 @@ class SearchContext(BaseModel):
     max_duration_minutes: float | None = None
 
 
-ALLOWED_USER_ID = os.getenv("ALLOWED_USER_ID") or os.getenv("ALLOWED_USER_IDS")
-
-
-class AuthMiddleware(BaseMiddleware):
-    """Middleware to restrict bot usage to allowed user IDs if ALLOWED_USER_ID is set."""
-    def __init__(self, bot_instance):
-        super().__init__()
-        self.bot_instance = bot_instance
-        self.update_types = ["message"]
-
-    async def pre_process(self, message: Message, data):
-        if message.text and message.text.strip().startswith(("/id", "/myid")):
-            return
-
-        if ALLOWED_USER_ID:
-            allowed_ids = [uid.strip() for uid in ALLOWED_USER_ID.split(",") if uid.strip()]
-            if message.from_user is None or str(message.from_user.id) not in allowed_ids:
-                await self.bot_instance.send_message(message.chat.id, msg["unauthorized_user"])
-                return CancelUpdate()
-
-    async def post_process(self, message: Message, data, exception):
-        pass
-
-
 TOKEN = get_bot_token()
 state_storage = StateMemoryStorage()  # TODO: Don't use this in production, (idk why, but use redis)
 bot = async_telebot.AsyncTeleBot(TOKEN, state_storage=state_storage)
-bot.setup_middleware(AuthMiddleware(bot))
 print("Ya estoy corriendo! Corre a Telegram e interactúa conmigo con los comandos /start o /help")
-
-
-@bot.message_handler(commands=["id", "myid"])
-async def send_user_id(message: Message):
-    """Sends the user their Telegram user ID."""
-    assert message.from_user is not None
-    uid = message.from_user.id
-    await bot.send_message(message.chat.id, msg["my_id"].format(uid, uid))
 
 
 @bot.message_handler(commands=["start"])
@@ -590,7 +557,6 @@ async def main():
         BotCommand("rastreando", "Ver todos los rastreos activos"),
         BotCommand("cancelar", "Cancelar rastreos activos"),
         BotCommand("ayuda", "Mostrar comandos disponibles"),
-        BotCommand("id", "Ver tu ID de Telegram"),
     ]
     try:
         await bot.set_my_commands(commands)
