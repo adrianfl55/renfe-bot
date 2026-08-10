@@ -12,13 +12,14 @@ from telebot.asyncio_storage import StateMemoryStorage
 from telebot.states import State, StatesGroup
 from telebot.states.asyncio.context import StateContext
 from telebot.states.asyncio.middleware import StateMiddleware
-from telebot.types import Message
+from telebot.types import Message, BotCommand
 
 from config import get_bot_token
 from errors import InvalidDWRToken, InvalidTrainRideFilter
 from messages import user_messages as msg, get_tickets_message, format_initial_train_status
 from models import TrainRideFilter, StationRecord
 from scraper import Scraper
+from tracker_manager import tracker_manager, TrackedSearch
 from validators import validate_station, validate_date, validate_float, validate_time, parse_yes_no
 
 
@@ -35,7 +36,11 @@ class SearchStates(StatesGroup):
     max_return_time = State()
     max_price = State()
     max_duration_minutes = State()
-    searching = State()
+
+
+class CancelStates(StatesGroup):
+    """CancelStates defines state for choosing which tracking to cancel."""
+    choosing_cancel = State()
 
 
 class SearchContext(BaseModel):
@@ -98,20 +103,98 @@ async def send_welcome(message: Message, state: StateContext):
     await bot.send_message(message.chat.id, msg["welcome"].format(username))
 
 
-@bot.message_handler(commands=["ayuda"])
+@bot.message_handler(commands=["ayuda", "help"])
 async def send_help(message: Message):
     """Sends a help message to the user who requested it."""
-    await bot.send_message(message.chat.id, msg["help"])
+    await bot.send_message(message.chat.id, msg["help"], parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["rastreando", "estado"])
+async def show_tracking_status(message: Message, state: StateContext):
+    """Shows the active search tracking parameters card if a search is running."""
+    assert message.from_user is not None
+    user_id = message.from_user.id
+    user_trackings = tracker_manager.get_user_trackings(user_id)
+
+    if not user_trackings:
+        await bot.send_message(
+            message.chat.id,
+            "ℹ️ *No tienes ningún rastreo activo en este momento.*\n\n"
+            "Usa /buscar para iniciar un nuevo rastreo de billetes.",
+            parse_mode="Markdown"
+        )
+        return
+
+    summary_msg = f"📋 *Rastreos activos actualmente ({len(user_trackings)} en curso):*\n\n"
+    for search in user_trackings:
+        summary_msg += search.get_summary_card() + "\n"
+
+    summary_msg += "🔄 *El bot se encuentra rastreando la disponibilidad en segundo plano...*"
+    await bot.send_message(message.chat.id, summary_msg, parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["cancelar"])
 async def cancel_search(message: Message, state: StateContext):
-    """Cancels the search process and resets the state."""
+    """Cancels tracking process interactively."""
+    assert message.from_user is not None
+    user_id = message.from_user.id
+
+    # Reset any setup FSM state
     current_state = await state.get()
-    if current_state is None:
+    if current_state is not None:
+        await state.delete()
+
+    user_trackings = tracker_manager.get_user_trackings(user_id)
+    if not user_trackings:
+        await bot.send_message(message.chat.id, "ℹ️ No tienes ningún rastreo activo para cancelar.")
         return
+
+    if len(user_trackings) == 1:
+        t = user_trackings[0]
+        tracker_manager.remove_tracking(t.id)
+        await bot.send_message(
+            message.chat.id,
+            f"✅ *[Rastreo #{t.id}]* ({t.origin.name.title()} ➔ {t.destination.name.title()}) cancelado correctamente.",
+            parse_mode="Markdown"
+        )
+    else:
+        await state.set(CancelStates.choosing_cancel)
+        options_msg = "🗑️ *¿Qué rastreo deseas cancelar?*\n\n"
+        for t in user_trackings:
+            options_msg += f"• *Escribe {t.id}* para cancelar Rastreo #{t.id} ({t.origin.name.title()} ➔ {t.destination.name.title()})\n"
+        options_msg += "\n• *Escribe 0* para cancelar *TODOS* los rastreos activos."
+
+        await bot.send_message(message.chat.id, options_msg, parse_mode="Markdown")
+
+
+@bot.message_handler(state=CancelStates.choosing_cancel)
+async def cancel_choice_get(message: Message, state: StateContext):
+    """Processes user choice for cancelling specific tracking."""
+    assert message.from_user is not None
+    user_id = message.from_user.id
+    cleaned = message.text.strip() if message.text else ""
+
+    if not cleaned.isdigit():
+        await bot.send_message(message.chat.id, "Por favor, escribe un número válido de la lista (ej. 1) o 0 para cancelar todos.")
+        return
+
+    num = int(cleaned)
     await state.delete()
-    await bot.send_message(message.chat.id, msg["cancel"])
+
+    if num == 0:
+        count = tracker_manager.cancel_all_user_trackings(user_id)
+        await bot.send_message(message.chat.id, f"✅ Se han cancelado todos los rastreos activos ({count} en total).")
+    else:
+        search = tracker_manager.get_tracking(num)
+        if search and search.user_id == user_id:
+            tracker_manager.remove_tracking(num)
+            await bot.send_message(
+                message.chat.id,
+                f"✅ *[Rastreo #{num}]* ({search.origin.name.title()} ➔ {search.destination.name.title()}) cancelado correctamente.",
+                parse_mode="Markdown"
+            )
+        else:
+            await bot.send_message(message.chat.id, f"No se encontró ningún rastreo activo con el número #{num}.")
 
 
 @bot.message_handler(commands=["buscar"])
@@ -121,8 +204,7 @@ async def search_tickets(message: Message, state: StateContext):
     current_state = await state.get()
 
     if current_state is not None:
-        await bot.send_message(message.chat.id, msg["search_already_running"])
-        return
+        await state.delete()
 
     await state.set(SearchStates.origin)
     async with state.data() as data:  # type: ignore
@@ -305,132 +387,177 @@ async def get_max_duration(message: Message, state: StateContext):
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        await state.set(SearchStates.searching)
+        assert message.from_user is not None
+        user_id = message.from_user.id
+
         async with state.data() as data:  # type: ignore
             data["max_duration_minutes"] = None if parsed.number == 0 else parsed.number
-            await search_trains(message, state, data)
+
+            search_obj = TrackedSearch(
+                id=0,
+                user_id=user_id,
+                origin=data["origin"],
+                destination=data["destination"],
+                departure_date=data["departure_date"],
+                max_departure_time=data.get("max_departure_time"),
+                return_date=data.get("return_date"),
+                max_return_time=data.get("max_return_time"),
+                max_price=data.get("max_price"),
+                max_duration_minutes=data.get("max_duration_minutes"),
+            )
+
+        tracking_id = tracker_manager.add_tracking(search_obj)
+        await state.delete()
+
+        # Send initial summary card with tracking ID
+        summary = (
+            f"📋 *Rastreo #{tracking_id} configurado con éxito:*\n"
+            f"• *Origen:* {search_obj.origin.name.title()}\n"
+            f"• *Destino:* {search_obj.destination.name.title()}\n"
+            f"• *Salida:* {search_obj.departure_date.strftime('%d/%m/%Y a las %H:%M')}\n"
+            f"• *Hora tope salida:* {search_obj.max_departure_time.strftime('%H:%M') if search_obj.max_departure_time else 'Sin límite'}\n"
+        )
+        if search_obj.return_date:
+            summary += f"• *Vuelta:* {search_obj.return_date.strftime('%d/%m/%Y a las %H:%M')}\n"
+            summary += f"• *Hora tope vuelta:* {search_obj.max_return_time.strftime('%H:%M') if search_obj.max_return_time else 'Sin límite'}\n"
+        if search_obj.max_price:
+            summary += f"• *Precio máx:* {search_obj.max_price} €\n"
+        if search_obj.max_duration_minutes:
+            summary += f"• *Duración máx:* {search_obj.max_duration_minutes} min\n"
+
+        summary += "\n🔎 *Consultando estado inicial en Renfe...*"
+        await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+
+        # Launch background tracking loop task
+        task = asyncio.create_task(run_search_loop(search_obj, message.chat.id))
+        search_obj.task = task
 
 
-async def search_trains(message: Message, state: StateContext, ctx: Dict[str, Any]):
+async def run_search_loop(search: TrackedSearch, chat_id: int):
+    """Background task loop for a tracked search."""
     departure_done = False
-    return_done = ctx.get("return_date", None) is None
+    return_done = search.return_date is None
 
-    # Send search summary card to user
-    summary = (
-        f"📋 *Resumen de la búsqueda:*\n"
-        f"• *Origen:* {ctx['origin'].name.title()}\n"
-        f"• *Destino:* {ctx['destination'].name.title()}\n"
-        f"• *Salida:* {ctx['departure_date'].strftime('%d/%m/%Y a las %H:%M')}\n"
-        f"• *Hora tope salida:* {ctx['max_departure_time'].strftime('%H:%M') if ctx.get('max_departure_time') else 'Sin límite'}\n"
-    )
-    if ctx.get("return_date"):
-        summary += f"• *Vuelta:* {ctx['return_date'].strftime('%d/%m/%Y a las %H:%M')}\n"
-        summary += f"• *Hora tope vuelta:* {ctx.get('max_return_time').strftime('%H:%M') if ctx.get('max_return_time') else 'Sin límite'}\n"
-    if ctx.get("max_price"):
-        summary += f"• *Precio máx:* {ctx['max_price']} €\n"
-    if ctx.get("max_duration_minutes"):
-        summary += f"• *Duración máx:* {ctx['max_duration_minutes']} min\n"
+    scraper = Scraper(search.origin,
+                      search.destination,
+                      search.departure_date,
+                      search.return_date)
 
-    summary += "\n🔎 *Consultando estado inicial en Renfe...*"
-    await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+    departure_filter = TrainRideFilter(origin=search.origin.name,
+                                       destination=search.destination.name,
+                                       departure_date=search.departure_date,
+                                       max_duration_minutes=search.max_duration_minutes,
+                                       max_price=search.max_price,
+                                       max_departure_time=search.max_departure_time)
 
-    scraper = Scraper(ctx["origin"],
-                      ctx["destination"],
-                      ctx["departure_date"],
-                      ctx.get("return_date"))
-
-    departure_filter = TrainRideFilter(origin=ctx["origin"].name,
-                                       destination=ctx["destination"].name,
-                                       departure_date=ctx["departure_date"],
-                                       max_duration_minutes=ctx.get("max_duration_minutes"),
-                                       max_price=ctx.get("max_price"),
-                                       max_departure_time=ctx.get("max_departure_time"))
-
+    return_filter = None
     if not return_done:
-        return_filter = TrainRideFilter(origin=ctx["destination"].name,
-                                        destination=ctx["origin"].name,
-                                        departure_date=ctx["return_date"],
-                                        max_duration_minutes=ctx.get("max_duration_minutes"),
-                                        max_price=ctx.get("max_price"),
-                                        max_departure_time=ctx.get("max_return_time"))
+        return_filter = TrainRideFilter(origin=search.destination.name,
+                                        destination=search.origin.name,
+                                        departure_date=search.return_date,
+                                        max_duration_minutes=search.max_duration_minutes,
+                                        max_price=search.max_price,
+                                        max_departure_time=search.max_return_time)
 
     try:
         initial_trains = scraper.get_trainrides()
-        matching_departure = departure_filter.get_matching_rides(initial_trains, include_unavailable=True)
+        matching_dep = departure_filter.get_matching_rides(initial_trains, include_unavailable=True)
 
-        if matching_departure:
-            status_msg = format_initial_train_status(matching_departure, ctx["origin"], ctx["destination"])
-            await bot.send_message(message.chat.id, status_msg, parse_mode="Markdown")
+        if matching_dep:
+            status_msg = format_initial_train_status(matching_dep, search.origin, search.destination)
+            await bot.send_message(chat_id, f"📌 *[Rastreo #{search.id}]*\n\n" + status_msg, parse_mode="Markdown")
 
-            available_now = [t for t in matching_departure if t.available]
+            available_now = [t for t in matching_dep if t.available]
             if available_now:
                 departure_done = True
-                await bot.send_message(message.chat.id,
+                await bot.send_message(chat_id,
                                        get_tickets_message(available_now,
-                                                           ctx["origin"],
-                                                           ctx["destination"]),
+                                                           search.origin,
+                                                           search.destination),
                                        parse_mode="Markdown")
             else:
                 await bot.send_message(
-                    message.chat.id,
-                    "🔄 *Rastreando disponibilidad del tren en segundo plano...*\n"
+                    chat_id,
+                    f"🔄 *[Rastreo #{search.id}] Rastreando en segundo plano...*\n"
                     "Te avisaré inmediatamente en cuanto se libere una plaza.",
                     parse_mode="Markdown"
                 )
         else:
-            raise InvalidTrainRideFilter("No se encontraron trenes que coincidan con la búsqueda.")
+            raise InvalidTrainRideFilter(f"No se encontraron trenes para el Rastreo #{search.id}.")
 
-        if not return_done:
-            matching_return = return_filter.get_matching_rides(initial_trains, include_unavailable=True)
-            if matching_return:
-                status_ret_msg = format_initial_train_status(matching_return, ctx["destination"], ctx["origin"])
-                await bot.send_message(message.chat.id, status_ret_msg, parse_mode="Markdown")
-                available_ret_now = [t for t in matching_return if t.available]
+        if not return_done and return_filter:
+            matching_ret = return_filter.get_matching_rides(initial_trains, include_unavailable=True)
+            if matching_ret:
+                status_ret_msg = format_initial_train_status(matching_ret, search.destination, search.origin)
+                await bot.send_message(chat_id, f"📌 *[Rastreo #{search.id} - Vuelta]*\n\n" + status_ret_msg, parse_mode="Markdown")
+                available_ret_now = [t for t in matching_ret if t.available]
                 if available_ret_now:
                     return_done = True
-                    await bot.send_message(message.chat.id,
+                    await bot.send_message(chat_id,
                                            get_tickets_message(available_ret_now,
-                                                               ctx["destination"],
-                                                               ctx["origin"]),
+                                                               search.destination,
+                                                               search.origin),
                                            parse_mode="Markdown")
 
         while not departure_done or not return_done:
             await asyncio.sleep(60)
             trains = scraper.get_trainrides()
+
             if not departure_done:
                 departure_trains = departure_filter.filter_rides(trains)
                 departure_done = len(departure_trains) > 0
                 if departure_done:
-                    await bot.send_message(message.chat.id,
+                    await bot.send_message(chat_id,
                                            get_tickets_message(departure_trains,
-                                                               ctx["origin"],
-                                                               ctx["destination"]),
+                                                               search.origin,
+                                                               search.destination),
                                            parse_mode="Markdown")
-            if not return_done:
+            if not return_done and return_filter:
                 return_trains = return_filter.filter_rides(trains)
                 return_done = len(return_trains) > 0
                 if return_done:
-                    await bot.send_message(message.chat.id,
+                    await bot.send_message(chat_id,
                                            get_tickets_message(return_trains,
-                                                               ctx["destination"],
-                                                               ctx["origin"]),
+                                                               search.destination,
+                                                               search.origin),
                                            parse_mode="Markdown")
-        await state.delete()
 
+        await bot.send_message(
+            chat_id,
+            f"✅ *[Rastreo #{search.id}] completado y finalizado automáticamente.*",
+            parse_mode="Markdown"
+        )
+        tracker_manager.remove_tracking(search.id)
+
+    except asyncio.CancelledError:
+        pass
     except InvalidTrainRideFilter:
-        await state.delete()
-        await bot.send_message(message.chat.id, msg["invalid_filter"])
-
+        await bot.send_message(chat_id, f"❌ *[Rastreo #{search.id}]* " + msg["invalid_filter"], parse_mode="Markdown")
+        tracker_manager.remove_tracking(search.id)
     except InvalidDWRToken:
-        await state.delete()
-        await bot.send_message(message.chat.id, msg["invalid_dwr_token"])
-
+        await bot.send_message(chat_id, f"❌ *[Rastreo #{search.id}]* " + msg["invalid_dwr_token"], parse_mode="Markdown")
+        tracker_manager.remove_tracking(search.id)
     except Exception as e:
-        await state.delete()
-        await bot.send_message(message.chat.id, msg["undefined_exception"].format(str(e)))
+        await bot.send_message(chat_id, f"❌ Error en *[Rastreo #{search.id}]*: {str(e)}", parse_mode="Markdown")
+        tracker_manager.remove_tracking(search.id)
 
-bot.add_custom_filter(asyncio_filters.StateFilter(bot))
-bot.setup_middleware(StateMiddleware(bot))
+
+async def main():
+    bot.add_custom_filter(asyncio_filters.StateFilter(bot))
+    bot.setup_middleware(StateMiddleware(bot))
+    commands = [
+        BotCommand("buscar", "Iniciar un nuevo rastreo de billetes"),
+        BotCommand("rastreando", "Ver todos los rastreos activos"),
+        BotCommand("cancelar", "Cancelar rastreos activos"),
+        BotCommand("ayuda", "Mostrar comandos disponibles"),
+        BotCommand("id", "Ver tu ID de Telegram"),
+    ]
+    try:
+        await bot.set_my_commands(commands)
+    except Exception:
+        pass
+    await bot.infinity_polling()
+
 
 if __name__ == "__main__":
-    asyncio.run(bot.infinity_polling())
+    asyncio.run(main())
