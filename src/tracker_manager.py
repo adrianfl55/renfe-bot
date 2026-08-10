@@ -60,6 +60,8 @@ class TrackerManager:
         if len(user_trackings) >= MAX_USER_TRACKINGS:
             return False, f"⚠️ Has alcanzado el límite máximo de {MAX_USER_TRACKINGS} rastreos activos por usuario. Usa /cancelar para eliminar alguno antes de crear uno nuevo."
 
+        return True, ""
+
     def add_tracking(self, search: TrackedSearch) -> int:
         if search.id <= 0:
             self._counter += 1
