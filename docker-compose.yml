@@ -10,3 +10,4 @@ services:
         required: false
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - ALLOWED_USER_ID=${ALLOWED_USER_ID:-}

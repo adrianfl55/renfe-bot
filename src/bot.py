@@ -1,6 +1,7 @@
 """This module contains the main logic of the bot. The search process is a finite state machine."""
 
 import asyncio
+import os
 from datetime import datetime, time
 from typing import Any, Dict
 
@@ -46,10 +47,33 @@ class SearchContext(BaseModel):
     max_departure_time: time | None = None
 
 
+ALLOWED_USER_ID = os.getenv("ALLOWED_USER_ID") or os.getenv("ALLOWED_USER_IDS")
+
 TOKEN = get_bot_token()
 state_storage = StateMemoryStorage()  # TODO: Don't use this in production, (idk why, but use redis)
 bot = async_telebot.AsyncTeleBot(TOKEN, state_storage=state_storage)
 print("Ya estoy corriendo! Corre a Telegram e interactúa conmigo con los comandos /start o /help")
+
+
+@bot.middleware_handler(update_types=["message"])
+async def restrict_users(bot_instance, message: Message):
+    """Middleware to restrict bot usage to allowed user IDs if ALLOWED_USER_ID is set."""
+    if message.text and message.text.strip().startswith(("/id", "/myid")):
+        return  # Always allow /id command so users can find their Telegram ID
+
+    if ALLOWED_USER_ID:
+        allowed_ids = [uid.strip() for uid in ALLOWED_USER_ID.split(",") if uid.strip()]
+        if message.from_user is None or str(message.from_user.id) not in allowed_ids:
+            await bot_instance.send_message(message.chat.id, msg["unauthorized_user"])
+            return False
+
+
+@bot.message_handler(commands=["id", "myid"])
+async def send_user_id(message: Message):
+    """Sends the user their Telegram user ID."""
+    assert message.from_user is not None
+    uid = message.from_user.id
+    await bot.send_message(message.chat.id, msg["my_id"].format(uid, uid))
 
 
 @bot.message_handler(commands=["start"])

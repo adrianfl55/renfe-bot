@@ -26,6 +26,8 @@ user_messages = {
     "wrong_date": "Perdona, no he entendido la fecha, por favor introdúcela de nuevo.",
     "wrong_number": "Número incorrecto, introdúcelo de nuevo.",
     "wrong_time": "Hora incorrecta. Por favor introdúcela en formato HH:MM (ejemplo 14:35) o 0 para omitir.",
+    "unauthorized_user": "🔒 Lo siento, este bot es de uso privado.",
+    "my_id": "🆔 Tu ID de Telegram es: {}\n\nAñádelo a tu archivo .env como:\nALLOWED_USER_ID={}\npara restringir el bot únicamente a tu usuario.",
     "invalid_filter": "El filtro introducido no es válido o no se encontró ningún tren con estos parámetros, por favor, inténtalo de nuevo.",
     "invalid_dwr_token": "Si esto ha ocurrido, Renfe ha actualizado por fin su web. Por favor, abre una issue en github para que pueda revisarlo.",
     "undefined_exception": "Oops, algo se ha roto y no sé el qué. Aquí va toda la traza: {}"
