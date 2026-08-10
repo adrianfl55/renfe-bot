@@ -19,7 +19,7 @@ from errors import InvalidDWRToken, InvalidTrainRideFilter
 from messages import user_messages as msg, get_tickets_message
 from models import TrainRideFilter, StationRecord
 from scraper import Scraper
-from validators import validate_station, validate_date, validate_float, validate_time
+from validators import validate_station, validate_date, validate_float, validate_time, parse_yes_no
 
 
 class SearchStates(StatesGroup):
@@ -183,12 +183,15 @@ async def departure_date_get(message: Message, state: StateContext):
 @bot.message_handler(state=SearchStates.needs_return)
 async def return_get(message: Message, state: StateContext):
     """Gets the user's choice about needing a return ticket and asks for the date if he needs."""
-    if message.text is not None and message.text.lower() in ["si", "s", "y", "yes"]:
+    choice = parse_yes_no(message.text)
+    if choice is True:
         await state.set(SearchStates.return_date)
         await bot.send_message(message.chat.id, msg["return_date"])
-    else:
+    elif choice is False:
         await state.set(SearchStates.needs_filter)
         await bot.send_message(message.chat.id, msg["needs_filter"])
+    else:
+        await bot.send_message(message.chat.id, msg["wrong_choice"])
 
 
 @bot.message_handler(state=SearchStates.return_date)
@@ -212,14 +215,17 @@ async def return_date_get(message: Message, state: StateContext):
 @bot.message_handler(state=SearchStates.needs_filter)
 async def ask_for_filter(message: Message, state: StateContext):
     """Asks the user if they want to filter the results and starts the search process if not."""
-    if message.text is not None and message.text.lower() in ["si", "s", "y", "yes"]:
+    choice = parse_yes_no(message.text)
+    if choice is True:
         await state.set(SearchStates.max_price)
         await bot.send_message(message.chat.id, msg["max_price"])
-    else:
+    elif choice is False:
         await state.set(SearchStates.searching)
         await bot.send_message(message.chat.id, msg["searching"])
         async with state.data() as data: # type: ignore
             await search_trains(message, state, data)
+    else:
+        await bot.send_message(message.chat.id, msg["wrong_choice"])
 
 
 @bot.message_handler(state=SearchStates.max_price)

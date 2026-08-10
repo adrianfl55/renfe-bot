@@ -107,7 +107,19 @@ def test_validate_time_zero():
     assert res.is_valid
     assert res.time is None
 
+from validators import validate_station, validate_date, validate_float, validate_time, parse_yes_no
+
+
 def test_validate_time_invalid():
     res = validate_time("invalid time text")
     assert not res.is_valid
     assert res.error_message == msg["wrong_time"]
+
+def test_parse_yes_no_variants():
+    for yes_input in ["sí", "SÍ", "si", "Si", "SI", "1", "s", "y", "yes"]:
+        assert parse_yes_no(yes_input) is True
+
+    for no_input in ["no", "NO", "No", "0", "n", "false"]:
+        assert parse_yes_no(no_input) is False
+
+    assert parse_yes_no("otra cosa") is None

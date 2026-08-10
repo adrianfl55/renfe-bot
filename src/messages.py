@@ -26,6 +26,7 @@ user_messages = {
     "wrong_date": "Perdona, no he entendido la fecha, por favor introdúcela de nuevo.",
     "wrong_number": "Número incorrecto, introdúcelo de nuevo.",
     "wrong_time": "Hora incorrecta. Por favor introdúcela en formato HH:MM (ejemplo 14:35) o 0 para omitir.",
+    "wrong_choice": "Por favor, responde 'sí' (o 1) o 'no' (o 0).",
     "unauthorized_user": "🔒 Lo siento, este bot es de uso privado.",
     "my_id": "🆔 Tu ID de Telegram es: {}\n\nAñádelo a tu archivo .env como:\nALLOWED_USER_ID={}\npara restringir el bot únicamente a tu usuario.",
     "invalid_filter": "El filtro introducido no es válido o no se encontró ningún tren con estos parámetros, por favor, inténtalo de nuevo.",

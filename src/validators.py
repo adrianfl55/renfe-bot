@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Optional
+import unicodedata
 
 import dateparser
 
@@ -10,6 +11,25 @@ from errors import StationNotFound
 from messages import user_messages as msg
 from models import StationRecord
 from storage import StationsStorage
+
+
+def normalize_text(text: Optional[str]) -> str:
+    """Strips whitespace, converts to lowercase, and removes accents/diacritics."""
+    if not text:
+        return ""
+    text = text.strip().lower()
+    text = unicodedata.normalize("NFD", text)
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
+def parse_yes_no(text: Optional[str]) -> Optional[bool]:
+    """Parses yes/no answers accepting variants like 'sí', 'si', 'SÍ', '1', 'no', '0', etc."""
+    normalized = normalize_text(text)
+    if normalized in ["si", "s", "1", "y", "yes", "true"]:
+        return True
+    if normalized in ["no", "n", "0", "false"]:
+        return False
+    return None
 
 
 @dataclass
@@ -88,7 +108,7 @@ def validate_date(message: Optional[str]) -> DateValidationResult:
 
     parsed_date = dateparser.parse(message,
                                    languages=["es", "en"],
-                                   settings={"STRICT_PARSING": True})
+                                   settings={"DATE_ORDER": "DMY"})
     if parsed_date is None:
         return DateValidationResult(is_valid=False, error_message=msg["wrong_date"])
     return DateValidationResult(is_valid=True, date=parsed_date)
@@ -107,7 +127,7 @@ def validate_time(message: Optional[str]) -> TimeValidationResult:
     if not message:
         return TimeValidationResult(is_valid=False, error_message=msg["wrong_time"])
     cleaned = message.strip()
-    if cleaned in ["0", "no", "n"]:
+    if parse_yes_no(cleaned) is False:
         return TimeValidationResult(is_valid=True, time=None)
 
     for fmt in ("%H:%M", "%H:%M:%S", "%H.%M"):
