@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Optional
+import re
 import unicodedata
 
 import dateparser
@@ -105,28 +106,41 @@ def validate_station(station_name: Optional[str]) -> StationValidationResult:
                 except StationNotFound:
                     pass
 
-            formatted_list = "\n".join(f"{idx+1}. {st.name.title()}" for idx, st in enumerate(suggested_records))
-            error_message = (
-                f"🔍 No encontré la estación exacta para '{cleaned_name}'. ¿Te refieres a alguna de estas?\n\n"
-                f"{formatted_list}\n\n"
-                f"💡 Responde con el número (1, 2, 3...) o vuelve a escribir el nombre."
-            )
+            error_message = msg["station_not_found"].format(cleaned_name)
             return StationValidationResult(is_valid=False, error_message=error_message, suggestions=suggested_records)
         else:
             return StationValidationResult(is_valid=False, error_message=msg["station_invalid"])
 
 
 def validate_date(message: Optional[str]) -> DateValidationResult:
-    """Validates the date provided by the user using the dateparser library, that supports
-    creating a datetime object from a natural language string in multiple languages"""
+    """Validates the date provided by the user strictly (DD/MM/YYYY) and ensures it is not in the past."""
     if not message:
         return DateValidationResult(is_valid=False, error_message=msg["wrong_date"])
 
-    parsed_date = dateparser.parse(message,
-                                   languages=["es", "en"],
-                                   settings={"DATE_ORDER": "DMY"})
+    cleaned = message.strip()
+    parsed_date = None
+
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d/%m/%y", "%d-%m-%y"):
+        try:
+            parsed_dt = datetime.strptime(cleaned, fmt)
+            parsed_date = parsed_dt
+            break
+        except ValueError:
+            pass
+
     if parsed_date is None:
-        return DateValidationResult(is_valid=False, error_message=msg["wrong_date"])
+        return DateValidationResult(
+            is_valid=False,
+            error_message="⚠️ Formato de fecha incorrecto. Por favor, introdúcela en formato *DD/MM/YYYY* (ejemplo: 11/08/2026)."
+        )
+
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    if parsed_date < today_start:
+        return DateValidationResult(
+            is_valid=False,
+            error_message="⚠️ La fecha no puede ser anterior al día de hoy. Por favor, introduce una fecha futura (ejemplo: 11/08/2026)."
+        )
+
     return DateValidationResult(is_valid=True, date=parsed_date)
 
 
@@ -134,27 +148,30 @@ def validate_float(message: Optional[str]) -> FloatValidationResult:
     """Validates the float number provided by the user"""
     if not message:
         return FloatValidationResult(is_valid=False, error_message=msg["wrong_number"])
-    parsed_number = float(message)
-    return FloatValidationResult(is_valid=True, number=parsed_number)
+    try:
+        parsed_number = float(message.replace(",", ".").strip())
+        return FloatValidationResult(is_valid=True, number=parsed_number)
+    except ValueError:
+        return FloatValidationResult(is_valid=False, error_message=msg["wrong_number"])
 
 
 def validate_time(message: Optional[str]) -> TimeValidationResult:
-    """Validates the time string provided by the user (e.g. '14:30' or '0' for no limit)"""
+    """Validates strict time format HH:MM (00:00 to 23:59) or '0'/'no' for no limit."""
     if not message:
         return TimeValidationResult(is_valid=False, error_message=msg["wrong_time"])
-    cleaned = message.strip()
-    if parse_yes_no(cleaned) is False:
+
+    cleaned = message.strip().lower()
+
+    if cleaned in ("0", "00", "00:00", "no", "n", "cero", "ninguno", "ninguna", "false"):
         return TimeValidationResult(is_valid=True, time=None)
 
-    for fmt in ("%H:%M", "%H:%M:%S", "%H.%M"):
-        try:
-            parsed_time = datetime.strptime(cleaned, fmt).time()
-            return TimeValidationResult(is_valid=True, time=parsed_time)
-        except ValueError:
-            pass
+    match = re.match(r"^([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])$", cleaned)
+    if not match:
+        return TimeValidationResult(
+            is_valid=False,
+            error_message="⚠️ Formato de hora incorrecto. Introduce la hora en formato *HH:MM* (ejemplo: 11:30) o responde *0* para sin límite de hora."
+        )
 
-    parsed_dt = dateparser.parse(cleaned, languages=["es", "en"])
-    if parsed_dt:
-        return TimeValidationResult(is_valid=True, time=parsed_dt.time())
-
-    return TimeValidationResult(is_valid=False, error_message=msg["wrong_time"])
+    hours, minutes = int(match.group(1)), int(match.group(2))
+    parsed_time = time(hour=hours, minute=minutes)
+    return TimeValidationResult(is_valid=True, time=parsed_time)

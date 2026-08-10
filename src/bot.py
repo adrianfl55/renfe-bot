@@ -367,6 +367,15 @@ async def return_date_get(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, return_datetime.error_message)
     else:
         assert return_datetime.date is not None
+        async with state.data() as data:  # type: ignore
+            dep_date: datetime | None = data.get("departure_date")
+            if dep_date and return_datetime.date.date() < dep_date.date():
+                await bot.send_message(
+                    message.chat.id,
+                    "⚠️ La fecha de vuelta no puede ser anterior a la fecha de ida. Por favor, introduce una fecha igual o posterior."
+                )
+                return
+
         await state.set(SearchStates.min_return_time)
         async with state.data() as data:  # type: ignore
             data["return_date"] = return_datetime.date

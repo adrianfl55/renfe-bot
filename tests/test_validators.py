@@ -28,11 +28,16 @@ def test_validate_station_valid(mock_message, mocker):
 
 def test_validate_station_not_found(mock_message, mocker):
     mock_message.text = "Unknown"
-    mocker.patch.object(StationsStorage, 'get_station', side_effect=StationNotFound)
+    def mock_get_station(name):
+        if name == "UNKNOWN":
+            raise StationNotFound()
+        return StationRecord(name=name, code="123")
+
+    mocker.patch.object(StationsStorage, 'get_station', side_effect=mock_get_station)
     mocker.patch.object(StationsStorage, 'find_station', return_value=["Madrid", "Barcelona"])
-    
+
     result = validate_station(mock_message.text)
-    
+
     assert not result.is_valid
     assert result.station is None
     assert "No encontré la estación exacta para 'Unknown'" in result.error_message
@@ -47,46 +52,56 @@ def test_validate_station_no_text(mock_message):
     assert result.error_message == msg["station_invalid"]
 
 def test_validate_date_valid(mock_message):
-    mock_message.text = "Hoy a las 07:00"
-    
+    mock_message.text = "25/12/2026"
+
     result = validate_date(mock_message.text)
-    
+
     assert result.is_valid
-    assert result.date == datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+    assert result.date == datetime(2026, 12, 25)
     assert result.error_message == ""
 
 def test_validate_date_invalid(mock_message):
     mock_message.text = "invalid date"
-    
+
     result = validate_date(mock_message.text)
-    
+
     assert not result.is_valid
     assert result.date is None
-    assert result.error_message == msg["wrong_date"]
+    assert "Formato de fecha incorrecto" in result.error_message
+
+def test_validate_date_past(mock_message):
+    mock_message.text = "01/01/2020"
+
+    result = validate_date(mock_message.text)
+
+    assert not result.is_valid
+    assert result.date is None
+    assert "anterior al día de hoy" in result.error_message
 
 def test_validate_date_no_text(mock_message):
     mock_message.text = None
-    
+
     result = validate_date(mock_message.text)
-    
+
     assert not result.is_valid
     assert result.date is None
     assert result.error_message == msg["wrong_date"]
 
 def test_validate_float_valid(mock_message):
     mock_message.text = "123.45"
-    
+
     result = validate_float(mock_message.text)
-    
+
     assert result.is_valid
     assert result.number == 123.45
     assert result.error_message == ""
 
 def test_validate_float_invalid(mock_message):
     mock_message.text = "invalid number"
-    
-    with pytest.raises(ValueError):
-        validate_float(mock_message.text)
+
+    result = validate_float(mock_message.text)
+    assert not result.is_valid
+    assert result.error_message == msg["wrong_number"]
 
 def test_validate_float_no_text(mock_message):
     mock_message.text = None
@@ -113,7 +128,7 @@ from validators import validate_station, validate_date, validate_float, validate
 def test_validate_time_invalid():
     res = validate_time("invalid time text")
     assert not res.is_valid
-    assert res.error_message == msg["wrong_time"]
+    assert "Formato de hora incorrecto" in res.error_message
 
 def test_parse_yes_no_variants():
     for yes_input in ["sí", "SÍ", "si", "Si", "SI", "1", "s", "y", "yes"]:
