@@ -12,9 +12,10 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
 ## ⚡ Funcionalidades Principales
 
 - 🤖 **Bot interactivo de Telegram**: Configuración fácil de búsquedas mediante `/buscar`.
-- 🚉 **Búsqueda flexible**: Origen, destino y fechas de ida/vuelta con soporte de fecha en lenguaje natural.
+- 🔒 **Modo Privado**: Restricción de acceso mediante `ALLOWED_USER_ID` y comando `/id`.
+- 🚉 **Búsqueda flexible**: Origen, destino y fechas de ida/vuelta con lenguaje natural.
 - 🕒 **Filtros avanzados**: Filtrado por precio máximo, duración y hora máxima de salida.
-- 💻 **CLI ligero**: Búsquedas rápidas y puntuales desde la consola (`uv run python src/cli.py`).
+- 💻 **CLI ligero**: Búsquedas rápidas desde la consola (`uv run python src/cli.py`).
 - 🐳 **Despliegue 24/7**: Listo para Docker y Docker Compose en segundo plano.
 
 ---
@@ -27,9 +28,10 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
    ```bash
    cp .env.example .env
    ```
-2. Pon tu token de Telegram obtenido de `@BotFather`:
+2. Configura tu token de Telegram y tu ID de usuario opcional:
    ```env
    TELEGRAM_TOKEN=123456789:ABCdefGhIjKlmNopQrsTuvWxYz
+   ALLOWED_USER_ID=123456789
    ```
 3. Ejecuta el contenedor en segundo plano:
    ```bash
@@ -62,10 +64,11 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
 
 ## 📱 Uso desde Telegram
 
-1. Envía el comando `/buscar` a tu bot en Telegram.
-2. Indica Origen, Destino y Fecha/Hora a partir de la cual buscar.
-3. Si activas los filtros, podrás establecer una **hora máxima de salida** (ej. salida `14:30` y límite `14:35`) para rastrear únicamente un tren específico.
-4. El bot enviará una notificación push a tu teléfono tan pronto como detecte una plaza disponible.
+1. Consulta tu ID de Telegram en el bot enviando **/id** (o **/myid**).
+2. Envía el comando **/buscar** a tu bot en Telegram.
+3. Indica Origen, Destino y Fecha/Hora a partir de la cual buscar.
+4. Si activas los filtros, podrás establecer una **hora máxima de salida** (ej. salida `14:30` y límite `14:35`) para rastrear únicamente un tren específico.
+5. El bot enviará una notificación push a tu teléfono tan pronto como detecte una plaza disponible.
 
 ---
 
@@ -74,9 +77,10 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
 Este fork extiende las capacidades del proyecto original con las siguientes mejoras y propósitos:
 
 - 🎯 **Filtro de tren específico (`max_departure_time`)**: Se añadió un nuevo estado y validación en la máquina de estados del bot para poder limitar la hora máxima de salida. **Propósito:** Permitir monitorizar únicamente un tren en concreto (ej. el tren de las 14:30) e ignorar el resto de trenes del día.
-- ⚡ **Ecosistema basado exclusivamente en `uv`**: Se eliminó el uso de `pip` en favor de `uv` en todo el proyecto (desarrollo local, Dockerfile con `ghcr.io/astral-sh/uv` y CI/CD con `astral-sh/setup-uv`). **Propósito:** Garantizar instalaciones ultrarrápidas y reproducibles.
+- 🔒 **Modo Privado y restricción por usuario (`ALLOWED_USER_ID`)**: Se añadió un middleware de seguridad y el comando `/id` para restringir el bot únicamente a tu usuario de Telegram. **Propósito:** Evitar que terceros no autorizados utilicen tu bot y tu servidor.
 - 🔑 **Configuración mediante `.env`**: Se actualizó la carga de configuración en `src/config.py` para dar prioridad a la variable de entorno `TELEGRAM_TOKEN` sobre el archivo plano `config.ini`. **Propósito:** Cumplir con las mejores prácticas de seguridad en Docker y evitar la exposición de tokens en repositorios.
 - 🐳 **Soporte Docker Compose**: Se incluyó un `docker-compose.yml` e historial de variables de entorno `.env.example`. **Propósito:** Facilitar el despliegue desatendido 24/7 en servidores domésticos o VPS sin configuración interactiva.
+- ⚡ **Ecosistema basado exclusivamente en `uv`**: Se eliminó el uso de `pip` en favor de `uv` en todo el proyecto (desarrollo local, Dockerfile con `ghcr.io/astral-sh/uv` y CI/CD con `astral-sh/setup-uv`). **Propósito:** Garantizar instalaciones ultrarrápidas y reproducibles.
 
 ---
 
