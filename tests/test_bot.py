@@ -1,3 +1,6 @@
+import os
+os.environ["TELEGRAM_TOKEN"] = "123456789:DUMMY_TOKEN_FOR_TESTS"
+
 from datetime import datetime
 from models import StationRecord
 from bot import format_station_slug, build_buy_keyboard
