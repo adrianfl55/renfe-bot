@@ -6,7 +6,7 @@ from models import TrainRideRecord, StationRecord
 
 user_messages = {
     "welcome": "👋 ¡Hola, {}! Bienvenido a tu bot privado de Renfe.\n\nTe ayudaré a monitorizar billetes de tren en tiempo real y te notificaré en Telegram tan pronto como se libere un asiento.\n\nEscribe /ayuda para ver todos los comandos disponibles o /buscar para iniciar tu primer rastreo.",
-    "help": "🤖 *Comandos disponibles:*\n\n• /buscar - Inicia un nuevo rastreo de billetes\n• /rastreando - Muestra el estado del rastreo activo en curso\n• /cancelar - Cancela la búsqueda en curso\n• /id - Consulta tu ID personal de Telegram\n• /ayuda - Muestra este mensaje de ayuda",
+    "help": "🤖 *Comandos disponibles:*\n\n• /buscar - Inicia un nuevo rastreo de billetes\n• /rastreando - Muestra el estado del rastreo activo en curso\n• /cancelar - Cancela rastreos activos\n• /id - Consulta tu ID personal de Telegram\n• /ayuda - Muestra este mensaje de ayuda",
     "cancel": "La búsqueda ha sido cancelada.",
     "cancel_params": "Reiniciando el proceso de búsqueda, usa /buscar para empezar de nuevo",
     "search_already_running": "Ya hay una búsqueda en curso, por favor utiliza /rastreando para ver su estado o /cancelar para cancelarla.",
@@ -21,8 +21,10 @@ user_messages = {
     "return_date": "📅 ¿Qué día es tu viaje de vuelta? (Ejemplo: 15/08/2026)",
     "min_return_time": "🕒 ¿A partir de qué hora buscas tren de vuelta? (Ejemplo: 18:00, o responde 0 para buscar desde las 00:00)",
     "max_return_time": "🕒 ¿Hasta qué hora como máximo debe salir el tren de vuelta? (Ejemplo: 18:30, o responde 0 para sin límite de hora)",
-    "max_price": "💵 ¿Quieres filtrar por precio máximo en €? (Ejemplo: 25, o responde 0 si no quieres filtrar por precio)",
-    "max_duration": "⏳ ¿Quieres filtrar por duración máxima en minutos? (Ejemplo: 90, o responde 0 si no quieres filtrar por duración)",
+    "needs_price_filter": "💵 ¿Quieres filtrar por precio máximo? (Responde Sí o No)",
+    "max_price": "💶 Introduce el precio máximo en € (ejemplo: 25.50):",
+    "needs_duration_filter": "⏳ ¿Quieres filtrar por duración máxima del viaje? (Responde Sí o No)",
+    "max_duration": "⏱️ Introduce la duración máxima en minutos (ejemplo: 90):",
     "searching": "🔎 Guardado. Iniciando búsqueda y rastreo de billetes...",
     "station_not_found": "No encontré la estación exacta para '{}'. ¿Te refieres a alguna de estas?\n\n{}\n\nPor favor, escribe el nombre de nuevo.",
     "confirm_date": "Vale, fecha registrada: {}",

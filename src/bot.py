@@ -34,7 +34,9 @@ class SearchStates(StatesGroup):
     return_date = State()
     min_return_time = State()
     max_return_time = State()
+    needs_price_filter = State()
     max_price = State()
+    needs_duration_filter = State()
     max_duration_minutes = State()
 
 
@@ -135,11 +137,10 @@ async def show_tracking_status(message: Message, state: StateContext):
 
 @bot.message_handler(commands=["cancelar"])
 async def cancel_search(message: Message, state: StateContext):
-    """Cancels tracking process interactively."""
+    """Cancels tracking process interactively, always showing current active trackings."""
     assert message.from_user is not None
     user_id = message.from_user.id
 
-    # Reset any setup FSM state
     current_state = await state.get()
     if current_state is not None:
         await state.delete()
@@ -149,22 +150,13 @@ async def cancel_search(message: Message, state: StateContext):
         await bot.send_message(message.chat.id, "ℹ️ No tienes ningún rastreo activo para cancelar.")
         return
 
-    if len(user_trackings) == 1:
-        t = user_trackings[0]
-        tracker_manager.remove_tracking(t.id)
-        await bot.send_message(
-            message.chat.id,
-            f"✅ *[Rastreo #{t.id}]* ({t.origin.name.title()} ➔ {t.destination.name.title()}) cancelado correctamente.",
-            parse_mode="Markdown"
-        )
-    else:
-        await state.set(CancelStates.choosing_cancel)
-        options_msg = "🗑️ *¿Qué rastreo deseas cancelar?*\n\n"
-        for t in user_trackings:
-            options_msg += f"• *Escribe {t.id}* para cancelar Rastreo #{t.id} ({t.origin.name.title()} ➔ {t.destination.name.title()})\n"
-        options_msg += "\n• *Escribe 0* para cancelar *TODOS* los rastreos activos."
+    await state.set(CancelStates.choosing_cancel)
+    options_msg = "🗑️ *¿Qué rastreo deseas cancelar?*\n\n"
+    for t in user_trackings:
+        options_msg += f"• *Escribe {t.id}* para cancelar Rastreo #{t.id} ({t.origin.name.title()} ➔ {t.destination.name.title()} - {t.departure_date.strftime('%d/%m/%Y %H:%M')})\n"
 
-        await bot.send_message(message.chat.id, options_msg, parse_mode="Markdown")
+    options_msg += "\n• *Escribe 0* para cancelar *TODOS* los rastreos activos."
+    await bot.send_message(message.chat.id, options_msg, parse_mode="Markdown")
 
 
 @bot.message_handler(state=CancelStates.choosing_cancel)
@@ -308,8 +300,8 @@ async def return_get(message: Message, state: StateContext):
         await state.set(SearchStates.return_date)
         await bot.send_message(message.chat.id, msg["return_date"])
     elif choice is False:
-        await state.set(SearchStates.max_price)
-        await bot.send_message(message.chat.id, msg["max_price"])
+        await state.set(SearchStates.needs_price_filter)
+        await bot.send_message(message.chat.id, msg["needs_price_filter"])
     else:
         await bot.send_message(message.chat.id, msg["wrong_choice"])
 
@@ -351,86 +343,121 @@ async def min_return_time_get(message: Message, state: StateContext):
 
 @bot.message_handler(state=SearchStates.max_return_time)
 async def max_return_time_get(message: Message, state: StateContext):
-    """Gets the maximum return time and asks for price filter."""
+    """Gets the maximum return time and asks for price filter preference."""
     parsed = validate_time(message.text)
 
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        await state.set(SearchStates.max_price)
+        await state.set(SearchStates.needs_price_filter)
         async with state.data() as data:  # type: ignore
             data["max_return_time"] = parsed.time
 
+        await bot.send_message(message.chat.id, msg["needs_price_filter"])
+
+
+@bot.message_handler(state=SearchStates.needs_price_filter)
+async def needs_price_filter_get(message: Message, state: StateContext):
+    """Asks if the user wants to filter by maximum price."""
+    choice = parse_yes_no(message.text)
+    if choice is True:
+        await state.set(SearchStates.max_price)
         await bot.send_message(message.chat.id, msg["max_price"])
+    elif choice is False:
+        await state.set(SearchStates.needs_duration_filter)
+        async with state.data() as data:  # type: ignore
+            data["max_price"] = None
+        await bot.send_message(message.chat.id, msg["needs_duration_filter"])
+    else:
+        await bot.send_message(message.chat.id, msg["wrong_choice"])
 
 
 @bot.message_handler(state=SearchStates.max_price)
 async def ask_for_max_price(message: Message, state: StateContext):
-    """Asks the user for the maximum price and asks for maximum duration."""
+    """Gets the maximum price and asks if the user wants to filter by duration."""
     parsed = validate_float(message.text)
 
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        await state.set(SearchStates.max_duration_minutes)
+        await state.set(SearchStates.needs_duration_filter)
         async with state.data() as data:  # type: ignore
             data["max_price"] = None if parsed.number == 0 else parsed.number
 
+        await bot.send_message(message.chat.id, msg["needs_duration_filter"])
+
+
+@bot.message_handler(state=SearchStates.needs_duration_filter)
+async def needs_duration_filter_get(message: Message, state: StateContext):
+    """Asks if the user wants to filter by maximum duration."""
+    choice = parse_yes_no(message.text)
+    if choice is True:
+        await state.set(SearchStates.max_duration_minutes)
         await bot.send_message(message.chat.id, msg["max_duration"])
+    elif choice is False:
+        async with state.data() as data:  # type: ignore
+            data["max_duration_minutes"] = None
+        await finalize_and_start_tracking(message, state)
+    else:
+        await bot.send_message(message.chat.id, msg["wrong_choice"])
 
 
 @bot.message_handler(state=SearchStates.max_duration_minutes)
 async def get_max_duration(message: Message, state: StateContext):
-    """Gets the maximum duration of the trip and starts the search process."""
+    """Gets the maximum duration and starts the tracking process."""
     parsed = validate_float(message.text)
 
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        assert message.from_user is not None
-        user_id = message.from_user.id
-
         async with state.data() as data:  # type: ignore
             data["max_duration_minutes"] = None if parsed.number == 0 else parsed.number
 
-            search_obj = TrackedSearch(
-                id=0,
-                user_id=user_id,
-                origin=data["origin"],
-                destination=data["destination"],
-                departure_date=data["departure_date"],
-                max_departure_time=data.get("max_departure_time"),
-                return_date=data.get("return_date"),
-                max_return_time=data.get("max_return_time"),
-                max_price=data.get("max_price"),
-                max_duration_minutes=data.get("max_duration_minutes"),
-            )
+        await finalize_and_start_tracking(message, state)
 
-        tracking_id = tracker_manager.add_tracking(search_obj)
-        await state.delete()
 
-        # Send initial summary card with tracking ID
-        summary = (
-            f"📋 *Rastreo #{tracking_id} configurado con éxito:*\n"
-            f"• *Origen:* {search_obj.origin.name.title()}\n"
-            f"• *Destino:* {search_obj.destination.name.title()}\n"
-            f"• *Salida:* {search_obj.departure_date.strftime('%d/%m/%Y a las %H:%M')}\n"
-            f"• *Hora tope salida:* {search_obj.max_departure_time.strftime('%H:%M') if search_obj.max_departure_time else 'Sin límite'}\n"
+async def finalize_and_start_tracking(message: Message, state: StateContext):
+    """Finalizes search configuration and registers tracking task."""
+    assert message.from_user is not None
+    user_id = message.from_user.id
+
+    async with state.data() as data:  # type: ignore
+        search_obj = TrackedSearch(
+            id=0,
+            user_id=user_id,
+            origin=data["origin"],
+            destination=data["destination"],
+            departure_date=data["departure_date"],
+            max_departure_time=data.get("max_departure_time"),
+            return_date=data.get("return_date"),
+            max_return_time=data.get("max_return_time"),
+            max_price=data.get("max_price"),
+            max_duration_minutes=data.get("max_duration_minutes"),
         )
-        if search_obj.return_date:
-            summary += f"• *Vuelta:* {search_obj.return_date.strftime('%d/%m/%Y a las %H:%M')}\n"
-            summary += f"• *Hora tope vuelta:* {search_obj.max_return_time.strftime('%H:%M') if search_obj.max_return_time else 'Sin límite'}\n"
-        if search_obj.max_price:
-            summary += f"• *Precio máx:* {search_obj.max_price} €\n"
-        if search_obj.max_duration_minutes:
-            summary += f"• *Duración máx:* {search_obj.max_duration_minutes} min\n"
 
-        summary += "\n🔎 *Consultando estado inicial en Renfe...*"
-        await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+    tracking_id = tracker_manager.add_tracking(search_obj)
+    await state.delete()
 
-        # Launch background tracking loop task
-        task = asyncio.create_task(run_search_loop(search_obj, message.chat.id))
-        search_obj.task = task
+    summary = (
+        f"📋 *Rastreo #{tracking_id} configurado con éxito:*\n"
+        f"• *Origen:* {search_obj.origin.name.title()}\n"
+        f"• *Destino:* {search_obj.destination.name.title()}\n"
+        f"• *Salida:* {search_obj.departure_date.strftime('%d/%m/%Y a las %H:%M')}\n"
+        f"• *Hora tope salida:* {search_obj.max_departure_time.strftime('%H:%M') if search_obj.max_departure_time else 'Sin límite'}\n"
+    )
+    if search_obj.return_date:
+        summary += f"• *Vuelta:* {search_obj.return_date.strftime('%d/%m/%Y a las %H:%M')}\n"
+        summary += f"• *Hora tope vuelta:* {search_obj.max_return_time.strftime('%H:%M') if search_obj.max_return_time else 'Sin límite'}\n"
+    if search_obj.max_price:
+        summary += f"• *Precio máx:* {search_obj.max_price} €\n"
+    if search_obj.max_duration_minutes:
+        summary += f"• *Duración máx:* {search_obj.max_duration_minutes} min\n"
+
+    summary += "\n🔎 *Consultando estado inicial en Renfe...*"
+    await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+
+    task = asyncio.create_task(run_search_loop(search_obj, message.chat.id))
+    search_obj.task = task
 
 
 async def run_search_loop(search: TrackedSearch, chat_id: int):
