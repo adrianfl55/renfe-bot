@@ -12,7 +12,7 @@ from telebot.asyncio_storage import StateMemoryStorage
 from telebot.states import State, StatesGroup
 from telebot.states.asyncio.context import StateContext
 from telebot.states.asyncio.middleware import StateMiddleware
-from telebot.types import Message, BotCommand
+from telebot.types import Message, BotCommand, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from config import get_bot_token
 from errors import InvalidDWRToken, InvalidTrainRideFilter
@@ -78,7 +78,7 @@ async def send_help(message: Message):
     await bot.send_message(message.chat.id, msg["help"], parse_mode="Markdown")
 
 
-@bot.message_handler(commands=["rastreando", "estado"])
+@bot.message_handler(commands=["estado"])
 async def show_tracking_status(message: Message, state: StateContext):
     """Shows the active search tracking parameters card if a search is running."""
     assert message.from_user is not None
@@ -178,42 +178,120 @@ async def search_tickets(message: Message, state: StateContext):
     await bot.send_message(message.chat.id, msg["start"])
 
 
+def build_station_keyboard(suggestions: list[StationRecord], callback_prefix: str) -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    for idx, st in enumerate(suggestions):
+        btn_text = f"📍 {st.name.title()}"
+        markup.add(InlineKeyboardButton(text=btn_text, callback_data=f"{callback_prefix}:{idx}"))
+    return markup
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("st_orig:"))
+async def handle_origin_callback(call: CallbackQuery, state: StateContext):
+    idx = int(call.data.split(":")[1])
+    async with state.data() as data:  # type: ignore
+        suggestions = data.get("origin_suggestions", [])
+        if 0 <= idx < len(suggestions):
+            selected = suggestions[idx]
+            await bot.answer_callback_query(call.id, text=f"Seleccionado: {selected.name.title()}")
+            await bot.send_message(
+                call.message.chat.id,
+                msg["station_confirm"].format(selected.name.title()),
+            )
+            await state.set(SearchStates.destination)
+            data["origin"] = selected
+            await bot.send_message(call.message.chat.id, msg["destination"])
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("st_dest:"))
+async def handle_dest_callback(call: CallbackQuery, state: StateContext):
+    idx = int(call.data.split(":")[1])
+    async with state.data() as data:  # type: ignore
+        suggestions = data.get("dest_suggestions", [])
+        if 0 <= idx < len(suggestions):
+            selected = suggestions[idx]
+            await bot.answer_callback_query(call.id, text=f"Seleccionado: {selected.name.title()}")
+            await bot.send_message(
+                call.message.chat.id,
+                msg["station_confirm"].format(selected.name.title()),
+            )
+            await state.set(SearchStates.departure_date)
+            data["destination"] = selected
+            await bot.send_message(call.message.chat.id, msg["departure_date"])
+
+
 @bot.message_handler(state=SearchStates.origin)
 async def origin_get(message: Message, state: StateContext):
     """Gets the origin station from the user and asks for the destination station."""
-    origin = validate_station(message.text)
+    cleaned = message.text.strip() if message.text else ""
+    selected_station = None
 
-    if not origin:
-        await bot.send_message(message.chat.id, origin.error_message)
-    else:
-        assert origin.station is not None
-        await bot.send_message(
-            message.chat.id,
-            msg["station_confirm"].format(origin.station.name.title()),
-        )
-        await state.set(SearchStates.destination)
+    if cleaned.isdigit():
+        choice = int(cleaned)
         async with state.data() as data:  # type: ignore
-            data["origin"] = origin.station
-        await bot.send_message(message.chat.id, msg["destination"])
+            suggestions = data.get("origin_suggestions", [])
+            if 1 <= choice <= len(suggestions):
+                selected_station = suggestions[choice - 1]
+
+    if not selected_station:
+        res = validate_station(message.text)
+        if res.is_valid and res.station:
+            selected_station = res.station
+        else:
+            if res.suggestions:
+                async with state.data() as data:  # type: ignore
+                    data["origin_suggestions"] = res.suggestions
+                markup = build_station_keyboard(res.suggestions, "st_orig")
+                await bot.send_message(message.chat.id, res.error_message, reply_markup=markup)
+            else:
+                await bot.send_message(message.chat.id, res.error_message)
+            return
+
+    await bot.send_message(
+        message.chat.id,
+        msg["station_confirm"].format(selected_station.name.title()),
+    )
+    await state.set(SearchStates.destination)
+    async with state.data() as data:  # type: ignore
+        data["origin"] = selected_station
+    await bot.send_message(message.chat.id, msg["destination"])
 
 
 @bot.message_handler(state=SearchStates.destination)
 async def destination_get(message: Message, state: StateContext):
     """Gets the destination station from the user and asks for the departure date."""
-    destination = validate_station(message.text)
+    cleaned = message.text.strip() if message.text else ""
+    selected_station = None
 
-    if not destination:
-        await bot.send_message(message.chat.id, destination.error_message)
-    else:
-        assert destination.station is not None
-        await bot.send_message(
-            message.chat.id,
-            msg["station_confirm"].format(destination.station.name.title()),
-        )
-        await state.set(SearchStates.departure_date)
+    if cleaned.isdigit():
+        choice = int(cleaned)
         async with state.data() as data:  # type: ignore
-            data["destination"] = destination.station
-        await bot.send_message(message.chat.id, msg["departure_date"])
+            suggestions = data.get("dest_suggestions", [])
+            if 1 <= choice <= len(suggestions):
+                selected_station = suggestions[choice - 1]
+
+    if not selected_station:
+        res = validate_station(message.text)
+        if res.is_valid and res.station:
+            selected_station = res.station
+        else:
+            if res.suggestions:
+                async with state.data() as data:  # type: ignore
+                    data["dest_suggestions"] = res.suggestions
+                markup = build_station_keyboard(res.suggestions, "st_dest")
+                await bot.send_message(message.chat.id, res.error_message, reply_markup=markup)
+            else:
+                await bot.send_message(message.chat.id, res.error_message)
+            return
+
+    await bot.send_message(
+        message.chat.id,
+        msg["station_confirm"].format(selected_station.name.title()),
+    )
+    await state.set(SearchStates.departure_date)
+    async with state.data() as data:  # type: ignore
+        data["destination"] = selected_station
+    await bot.send_message(message.chat.id, msg["departure_date"])
 
 
 @bot.message_handler(state=SearchStates.departure_date)
@@ -554,7 +632,7 @@ async def main():
     bot.setup_middleware(StateMiddleware(bot))
     commands = [
         BotCommand("buscar", "Iniciar un nuevo rastreo de billetes"),
-        BotCommand("rastreando", "Ver todos los rastreos activos"),
+        BotCommand("estado", "Ver todos los rastreos activos"),
         BotCommand("cancelar", "Cancelar rastreos activos"),
         BotCommand("ayuda", "Mostrar comandos disponibles"),
     ]

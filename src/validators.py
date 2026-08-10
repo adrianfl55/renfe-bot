@@ -1,6 +1,6 @@
 """This module contains the validators for the user input"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Optional
 import unicodedata
@@ -39,6 +39,7 @@ class StationValidationResult:
     is_valid: bool
     station: StationRecord | None = None
     error_message: str = ""
+    suggestions: list[StationRecord] = field(default_factory=list)
 
     def __bool__(self):
         return self.is_valid
@@ -96,9 +97,21 @@ def validate_station(station_name: Optional[str]) -> StationValidationResult:
             station = StationsStorage.get_station(possible_stations[0])
             return StationValidationResult(is_valid=True, station=station)
         elif len(possible_stations) > 1:
-            formatted_list = "\n".join(st.title() for st in possible_stations[:6])
-            error_message = msg["station_not_found"].format(cleaned_name, formatted_list)
-            return StationValidationResult(is_valid=False, error_message=error_message)
+            suggested_records: list[StationRecord] = []
+            for st_name in possible_stations[:6]:
+                try:
+                    st_rec = StationsStorage.get_station(st_name)
+                    suggested_records.append(st_rec)
+                except StationNotFound:
+                    pass
+
+            formatted_list = "\n".join(f"{idx+1}. {st.name.title()}" for idx, st in enumerate(suggested_records))
+            error_message = (
+                f"🔍 No encontré la estación exacta para '{cleaned_name}'. ¿Te refieres a alguna de estas?\n\n"
+                f"{formatted_list}\n\n"
+                f"💡 Responde con el número (1, 2, 3...) o vuelve a escribir el nombre."
+            )
+            return StationValidationResult(is_valid=False, error_message=error_message, suggestions=suggested_records)
         else:
             return StationValidationResult(is_valid=False, error_message=msg["station_invalid"])
 

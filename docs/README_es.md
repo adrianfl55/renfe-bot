@@ -13,7 +13,7 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
 
 - 🤖 **Bot interactivo de Telegram**: Configuración fácil de búsquedas mediante `/buscar`.
 - 🔀 **Multi-Tracking Simultáneo**: Monitoriza múltiples trayectos o fechas a la vez en segundo plano (máx. 3 por usuario, 100 globales).
-- 📊 **Panel de Rastreos Activos**: Consulta todos los rastreos en marcha en cualquier momento con `/rastreando`.
+- 📊 **Panel de Rastreos Activos**: Consulta todos los rastreos en marcha en cualquier momento con `/estado`.
 - 🗑️ **Cancelación Interactiva Guiada**: Muestra el desglose de rastreos y permite confirmar cuál cancelar por su ID o todos a la vez con `/cancelar`.
 - 🚉 **Búsqueda flexible**: Origen, destino y fechas con validación automática de estaciones y sugerencias.
 - 🕒 **Filtros por preguntas Sí/No**: Configuración intuitiva de precio máximo y duración.
@@ -67,7 +67,7 @@ Bot de Telegram y CLI para monitorizar la disponibilidad de billetes de tren en 
 
 - **/start**: Saludo de bienvenida e inicio del bot.
 - **/buscar**: Inicia el cuestionario guiado paso a paso (Origen ➔ Destino ➔ Fecha ➔ Hora mín ➔ Hora máx ➔ Filtros Sí/No).
-- **/rastreando**: Muestra el panel con la lista de todos los rastreos activos en curso (`#1`, `#2`, ...).
+- **/estado**: Muestra el panel con la lista de todos los rastreos activos en curso (`#1`, `#2`, ...).
 - **/cancelar**: Despliega la lista interactiva de rastreos para seleccionar cuál cancelar por su ID o cancelar todos.
 - **/ayuda**: Muestra la lista de comandos disponibles.
 
@@ -81,7 +81,7 @@ Este fork extiende las capacidades del proyecto original con las siguientes mejo
 - 🗑️ **Menú de cancelación interactiva guiada**: `/cancelar` muestra siempre el desglose del rastreo activo y solicita confirmación del ID a cancelar.
 - ❓ **Filtros por preguntas Sí/No**: Filtros de precio y duración basados en preguntas afirmativas/negativas limpiadas y validadas.
 - 🎯 **Filtro de tren específico (Hora mín / Hora máx)**: Flujo directo para acotar la hora de salida (ej. entre 11:30 y 11:35) para rastrear únicamente un tren en concreto.
-- 📊 **Comando `/rastreando` e informe inicial de estado**: Muestra el informe inicial con el estado de los trenes encontrados (`Plazas libres` vs `Completo (0 plazas libres)`).
+- 📊 **Comando `/estado` e informe inicial de estado**: Muestra el informe inicial con el estado de los trenes encontrados (`Plazas libres` vs `Completo (0 plazas libres)`).
 - 🔑 **Configuración mediante `.env`**: Carga segura de variables de entorno para Docker Compose.
 - ⚡ **Ecosistema basado exclusivamente en `uv`**: Proyecto 100% optimizado para `uv`.
 

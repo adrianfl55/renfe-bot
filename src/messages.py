@@ -6,10 +6,10 @@ from models import TrainRideRecord, StationRecord
 
 user_messages = {
     "welcome": "👋 ¡Hola, {}! Bienvenido al bot de billetes de Renfe.\n\nTe ayudaré a monitorizar billetes de tren en tiempo real y te notificaré en Telegram tan pronto como se libere un asiento.\n\nEscribe /ayuda para ver todos los comandos disponibles o /buscar para iniciar tu primer rastreo.",
-    "help": "🤖 *Comandos disponibles:*\n\n• /buscar - Inicia un nuevo rastreo de billetes\n• /rastreando - Muestra el estado de tus rastreos activos\n• /cancelar - Cancela rastreos activos\n• /ayuda - Muestra este mensaje de ayuda",
+    "help": "🤖 *Comandos disponibles:*\n\n• /buscar - Inicia un nuevo rastreo de billetes\n• /estado - Muestra el estado de tus rastreos activos\n• /cancelar - Cancela rastreos activos\n• /ayuda - Muestra este mensaje de ayuda",
     "cancel": "La búsqueda ha sido cancelada.",
     "cancel_params": "Reiniciando el proceso de búsqueda, usa /buscar para empezar de nuevo",
-    "search_already_running": "Ya hay una búsqueda en curso, por favor utiliza /rastreando para ver su estado o /cancelar para cancelarla.",
+    "search_already_running": "Ya hay una búsqueda en curso, por favor utiliza /estado para ver su estado o /cancelar para cancelarla.",
     "start": "Estación de salida: ¿Desde dónde sales? (Ej. Vigo, Madrid, Barcelona)",
     "destination": "Estación de llegada: ¿A dónde vas? (Ej. A Coruña, Sevilla, Valencia)",
     "station_invalid": "Por favor, introduce el nombre de una estación válida.",

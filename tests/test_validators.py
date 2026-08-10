@@ -35,7 +35,7 @@ def test_validate_station_not_found(mock_message, mocker):
     
     assert not result.is_valid
     assert result.station is None
-    assert result.error_message == msg["station_not_found"].format("Unknown", "Madrid\nBarcelona")
+    assert "No encontré la estación exacta para 'Unknown'" in result.error_message
 
 def test_validate_station_no_text(mock_message):
     mock_message.text = None
