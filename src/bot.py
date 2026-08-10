@@ -1,7 +1,7 @@
 """This module contains the main logic of the bot. The search process is a finite state machine."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, Dict
 
 from pydantic import BaseModel
@@ -17,7 +17,7 @@ from errors import InvalidDWRToken, InvalidTrainRideFilter
 from messages import user_messages as msg, get_tickets_message
 from models import TrainRideFilter, StationRecord
 from scraper import Scraper
-from validators import validate_station, validate_date, validate_float
+from validators import validate_station, validate_date, validate_float, validate_time
 
 
 class SearchStates(StatesGroup):
@@ -30,6 +30,7 @@ class SearchStates(StatesGroup):
     needs_filter = State()
     max_price = State()
     max_duration_minutes = State()
+    max_departure_time = State()
     searching = State()
 
 
@@ -42,6 +43,7 @@ class SearchContext(BaseModel):
     return_date: datetime | None = None
     max_price: float | None = None
     max_duration_minutes: float | None = None
+    max_departure_time: time | None = None
 
 
 TOKEN = get_bot_token()
@@ -200,14 +202,27 @@ async def ask_for_max_price(message: Message, state: StateContext):
 
 @bot.message_handler(state=SearchStates.max_duration_minutes)
 async def get_max_duration(message: Message, state: StateContext):
-    """Gets the maximum duration of the trip and starts the search process."""
+    """Gets the maximum duration of the trip and asks for maximum departure time."""
     parsed = validate_float(message.text)
 
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
+        await state.set(SearchStates.max_departure_time)
+        await state.add_data(max_duration_minutes=None if parsed.number == 0 else parsed.number)
+        await bot.send_message(message.chat.id, msg["max_departure_time"])
+
+
+@bot.message_handler(state=SearchStates.max_departure_time)
+async def get_max_departure_time(message: Message, state: StateContext):
+    """Gets the maximum departure time and starts the search process."""
+    parsed = validate_time(message.text)
+
+    if not parsed:
+        await bot.send_message(message.chat.id, parsed.error_message)
+    else:
         await state.set(SearchStates.searching)
-        await state.add_data(max_duration=None if parsed.number == 0 else parsed.number)
+        await state.add_data(max_departure_time=parsed.time)
         await bot.send_message(message.chat.id, msg["searching"])
         async with state.data() as data: # type: ignore
             await search_trains(message, state, data)
@@ -225,19 +240,17 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
     departure_filter = TrainRideFilter(origin=ctx["origin"].name,
                                        destination=ctx["destination"].name,
                                        departure_date=ctx["departure_date"],
-                                       min_departure_hour=ctx.get("min_departure_hour"),
-                                       max_departure_hour=ctx.get("max_departure_hour"),
                                        max_duration_minutes=ctx.get("max_duration_minutes"),
-                                       max_price=ctx.get("max_price"))
+                                       max_price=ctx.get("max_price"),
+                                       max_departure_time=ctx.get("max_departure_time"))
 
     if not return_done:
         return_filter = TrainRideFilter(origin=ctx["destination"].name,
                                         destination=ctx["origin"].name,
                                         departure_date=ctx["return_date"],
-                                        min_departure_hour=ctx.get("min_return_hour"),
-                                        max_departure_hour=ctx.get("max_return_hour"),
                                         max_duration_minutes=ctx.get("max_duration_minutes"),
-                                        max_price=ctx.get("max_price"))
+                                        max_price=ctx.get("max_price"),
+                                        max_departure_time=ctx.get("max_departure_time"))
 
     try:
         while not departure_done or not return_done:

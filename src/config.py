@@ -1,6 +1,7 @@
 """Module to manage the configuration of the bot."""
 
 import configparser
+import os
 from textwrap import dedent
 
 import requests
@@ -60,12 +61,15 @@ def init_bot() -> None:
 
 
 def get_bot_token() -> str:
-    """Read the configuration file to obtain the bot's secret token. If it's not there, the user
-    is prompted to configure it properly.
+    """Read the configuration file or environment variables to obtain the bot's secret token.
 
     :return: The bot instance secret token
     :rtype: str
     """
+    env_token = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_SECRET_TOKEN")
+    if env_token:
+        return env_token
+
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
 

@@ -1,7 +1,7 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, time
 from dataclasses import dataclass
-from validators import validate_station, validate_date, validate_float
+from validators import validate_station, validate_date, validate_float, validate_time
 from errors import StationNotFound
 from models import StationRecord
 from storage import StationsStorage
@@ -96,3 +96,18 @@ def test_validate_float_no_text(mock_message):
     assert not result.is_valid
     assert result.number is None
     assert result.error_message == msg["wrong_number"]
+
+def test_validate_time_valid():
+    res = validate_time("14:30")
+    assert res.is_valid
+    assert res.time == time(14, 30)
+
+def test_validate_time_zero():
+    res = validate_time("0")
+    assert res.is_valid
+    assert res.time is None
+
+def test_validate_time_invalid():
+    res = validate_time("invalid time text")
+    assert not res.is_valid
+    assert res.error_message == msg["wrong_time"]

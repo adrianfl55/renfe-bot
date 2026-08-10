@@ -114,3 +114,19 @@ def test_train_ride_str(sample_rides):
     ride = sample_rides[0]
     expected_str = "🚆 Tren AVE: 🕒 08:30 - 11:30 🕙 - 50.00 €\n"
     assert str(ride) == expected_str
+
+
+def test_filter_rides_by_max_departure_time(sample_rides):
+    filter = TrainRideFilter(
+        origin="Madrid",
+        destination="Barcelona",
+        departure_date=datetime(2025, 1, 30, 8, 0),
+        max_duration_minutes=None,
+        max_price=None,
+        max_departure_time=time(8, 45)
+    )
+
+    result = filter.filter_rides(sample_rides)
+    assert len(result) == 1
+    assert result[0].departure_time.hour == 8
+

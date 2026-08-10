@@ -1,7 +1,7 @@
 """This module contains the validators for the user input"""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
 
 import dateparser
@@ -41,6 +41,18 @@ class FloatValidationResult:
 
     is_valid: bool
     number: float | None = None
+    error_message: str = ""
+
+    def __bool__(self):
+        return self.is_valid
+
+
+@dataclass
+class TimeValidationResult:
+    """Holds the result of a time validation"""
+
+    is_valid: bool
+    time: Optional[time] = None
     error_message: str = ""
 
     def __bool__(self):
@@ -88,3 +100,25 @@ def validate_float(message: Optional[str]) -> FloatValidationResult:
         return FloatValidationResult(is_valid=False, error_message=msg["wrong_number"])
     parsed_number = float(message)
     return FloatValidationResult(is_valid=True, number=parsed_number)
+
+
+def validate_time(message: Optional[str]) -> TimeValidationResult:
+    """Validates the time string provided by the user (e.g. '14:30' or '0' for no limit)"""
+    if not message:
+        return TimeValidationResult(is_valid=False, error_message=msg["wrong_time"])
+    cleaned = message.strip()
+    if cleaned in ["0", "no", "n"]:
+        return TimeValidationResult(is_valid=True, time=None)
+
+    for fmt in ("%H:%M", "%H:%M:%S", "%H.%M"):
+        try:
+            parsed_time = datetime.strptime(cleaned, fmt).time()
+            return TimeValidationResult(is_valid=True, time=parsed_time)
+        except ValueError:
+            pass
+
+    parsed_dt = dateparser.parse(cleaned, languages=["es", "en"])
+    if parsed_dt:
+        return TimeValidationResult(is_valid=True, time=parsed_dt.time())
+
+    return TimeValidationResult(is_valid=False, error_message=msg["wrong_time"])
