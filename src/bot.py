@@ -40,7 +40,7 @@ class SearchStates(StatesGroup):
 
 class SearchContext(BaseModel):
     """SearchContext is a class that holds the context of the search process."""
-    user_id: int
+    telegram_user_id: int | None = None
     origin: StationRecord | None = None
     destination: StationRecord | None = None
     departure_date: datetime | None = None
@@ -125,7 +125,7 @@ async def search_tickets(message: Message, state: StateContext):
         return
 
     await state.set(SearchStates.origin)
-    await state.add_data(user_id=message.from_user.id)
+    await state.add_data(telegram_user_id=message.from_user.id)
     await bot.send_message(message.chat.id, msg["start"])
 
 
