@@ -82,22 +82,25 @@ class TimeValidationResult:
 def validate_station(station_name: Optional[str]) -> StationValidationResult:
     """Validates the station provided by the user, returning partial matches if the station is
     not found"""
-    if station_name is None:
+    if not station_name or not station_name.strip():
         return StationValidationResult(is_valid=False, error_message=msg["station_invalid"])
 
-    try:
-        station = StationsStorage.get_station(station_name.upper())
-        return StationValidationResult(is_valid=True, station=station)
+    cleaned_name = station_name.strip()
 
+    try:
+        station = StationsStorage.get_station(cleaned_name.upper())
+        return StationValidationResult(is_valid=True, station=station)
     except StationNotFound:
-        possible_stations = StationsStorage.find_station(station_name)
-        error_message = (
-            msg["station_not_found"].format(station_name,
-                                            "\n".join(map(str.title, possible_stations)))
-            if possible_stations
-            else msg["station_invalid"]
-        )
-        return StationValidationResult(is_valid=False, error_message=error_message)
+        possible_stations = StationsStorage.find_station(cleaned_name)
+        if len(possible_stations) == 1:
+            station = StationsStorage.get_station(possible_stations[0])
+            return StationValidationResult(is_valid=True, station=station)
+        elif len(possible_stations) > 1:
+            formatted_list = "\n".join(st.title() for st in possible_stations[:6])
+            error_message = msg["station_not_found"].format(cleaned_name, formatted_list)
+            return StationValidationResult(is_valid=False, error_message=error_message)
+        else:
+            return StationValidationResult(is_valid=False, error_message=msg["station_invalid"])
 
 
 def validate_date(message: Optional[str]) -> DateValidationResult:

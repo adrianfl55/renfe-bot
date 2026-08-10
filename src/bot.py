@@ -27,12 +27,14 @@ class SearchStates(StatesGroup):
     origin = State()
     destination = State()
     departure_date = State()
+    min_departure_time = State()
+    max_departure_time = State()
     needs_return = State()
     return_date = State()
-    needs_filter = State()
+    min_return_time = State()
+    max_return_time = State()
     max_price = State()
     max_duration_minutes = State()
-    max_departure_time = State()
     searching = State()
 
 
@@ -42,10 +44,11 @@ class SearchContext(BaseModel):
     origin: StationRecord | None = None
     destination: StationRecord | None = None
     departure_date: datetime | None = None
+    max_departure_time: time | None = None
     return_date: datetime | None = None
+    max_return_time: time | None = None
     max_price: float | None = None
     max_duration_minutes: float | None = None
-    max_departure_time: time | None = None
 
 
 ALLOWED_USER_ID = os.getenv("ALLOWED_USER_ID") or os.getenv("ALLOWED_USER_IDS")
@@ -100,39 +103,29 @@ async def send_help(message: Message):
     """Sends a help message to the user who requested it."""
     await bot.send_message(message.chat.id, msg["help"])
 
-@bot.message_handler(commands=["cancelar"], state=SearchStates.searching)
-async def send_cancel(message: Message, state: StateContext):
-    """Cancels the ongoing search and resets the state."""
-    await bot.send_message(message.chat.id, msg["cancel"])
-    # TODO: cancel the search process
-    await state.delete()
-
 
 @bot.message_handler(commands=["cancelar"])
-async def send_cancel_no_search(message: Message, state: StateContext):
-    """Cancels the parameter inputs and resets the state."""
-    await bot.send_message(message.chat.id, msg["cancel_params"])
+async def cancel_search(message: Message, state: StateContext):
+    """Cancels the search process and resets the state."""
+    current_state = await state.get()
+    if current_state is None:
+        return
     await state.delete()
-
-
-@bot.message_handler(commands=["buscar"], state=SearchStates.searching)
-async def start_search_unavailable(message: Message, state: StateContext):
-    """Starts the search process by asking the user for the origin station."""
-    await bot.send_message(message.chat.id, msg["search_already_running"])
-
-
-@bot.message_handler(commands=["debug"])
-async def debug(message: Message, state: StateContext):
-    """Debug the current state and data."""
-    st = await state.get()
-    await bot.send_message(message.chat.id, st)
+    await bot.send_message(message.chat.id, msg["cancel"])
 
 
 @bot.message_handler(commands=["buscar"])
-async def start_search(message: Message, state: StateContext):
-    """Starts the search process by asking the user for the origin station."""
+async def search_tickets(message: Message, state: StateContext):
+    """Starts the search process by asking for the origin station."""
     assert message.from_user is not None
+    current_state = await state.get()
+
+    if current_state is not None:
+        await bot.send_message(message.chat.id, msg["search_already_running"])
+        return
+
     await state.set(SearchStates.origin)
+    await state.add_data(user_id=message.from_user.id)
     await bot.send_message(message.chat.id, msg["start"])
 
 
@@ -144,6 +137,11 @@ async def origin_get(message: Message, state: StateContext):
     if not origin:
         await bot.send_message(message.chat.id, origin.error_message)
     else:
+        assert origin.station is not None
+        await bot.send_message(
+            message.chat.id,
+            msg["station_confirm"].format(origin.station.name.title()),
+        )
         await state.set(SearchStates.destination)
         await state.add_data(origin=origin.station)
         await bot.send_message(message.chat.id, msg["destination"])
@@ -157,80 +155,127 @@ async def destination_get(message: Message, state: StateContext):
     if not destination:
         await bot.send_message(message.chat.id, destination.error_message)
     else:
+        assert destination.station is not None
+        await bot.send_message(
+            message.chat.id,
+            msg["station_confirm"].format(destination.station.name.title()),
+        )
         await state.set(SearchStates.departure_date)
         await state.add_data(destination=destination.station)
-        await bot.send_message(message.chat.id, msg["destination_date"])
+        await bot.send_message(message.chat.id, msg["departure_date"])
 
 
 @bot.message_handler(state=SearchStates.departure_date)
 async def departure_date_get(message: Message, state: StateContext):
-    """Gets the departure date from the user and asks if they need a return ticket."""
+    """Gets the departure date from the user and asks for the minimum departure time."""
     departure_datetime = validate_date(message.text)
 
     if not departure_datetime:
         await bot.send_message(message.chat.id, departure_datetime.error_message)
     else:
         assert departure_datetime.date is not None
-        await bot.send_message(
-            message.chat.id,
-            msg["confirm_date"].format(departure_datetime.date.strftime("%d/%m/%Y %H:%M")),
-        )
-        await state.set(SearchStates.needs_return)
+        await state.set(SearchStates.min_departure_time)
         await state.add_data(departure_date=departure_datetime.date)
+        await bot.send_message(message.chat.id, msg["min_departure_time"])
+
+
+@bot.message_handler(state=SearchStates.min_departure_time)
+async def min_departure_time_get(message: Message, state: StateContext):
+    """Gets the minimum departure time and asks for the maximum departure time."""
+    parsed = validate_time(message.text)
+
+    if not parsed:
+        await bot.send_message(message.chat.id, parsed.error_message)
+    else:
+        async with state.data() as data:  # type: ignore
+            dep_date: datetime = data["departure_date"]
+            if parsed.time is not None:
+                dep_date = dep_date.replace(hour=parsed.time.hour, minute=parsed.time.minute, second=0)
+            else:
+                dep_date = dep_date.replace(hour=0, minute=0, second=0)
+            await state.add_data(departure_date=dep_date)
+
+        await state.set(SearchStates.max_departure_time)
+        await bot.send_message(message.chat.id, msg["max_departure_time"])
+
+
+@bot.message_handler(state=SearchStates.max_departure_time)
+async def max_departure_time_get(message: Message, state: StateContext):
+    """Gets the maximum departure time and asks if they need a return ticket."""
+    parsed = validate_time(message.text)
+
+    if not parsed:
+        await bot.send_message(message.chat.id, parsed.error_message)
+    else:
+        await state.set(SearchStates.needs_return)
+        await state.add_data(max_departure_time=parsed.time)
         await bot.send_message(message.chat.id, msg["needs_return"])
 
 
 @bot.message_handler(state=SearchStates.needs_return)
 async def return_get(message: Message, state: StateContext):
-    """Gets the user's choice about needing a return ticket and asks for the date if he needs."""
+    """Gets the user's choice about needing a return ticket and asks for the date if needed."""
     choice = parse_yes_no(message.text)
     if choice is True:
         await state.set(SearchStates.return_date)
         await bot.send_message(message.chat.id, msg["return_date"])
     elif choice is False:
-        await state.set(SearchStates.needs_filter)
-        await bot.send_message(message.chat.id, msg["needs_filter"])
+        await state.set(SearchStates.max_price)
+        await bot.send_message(message.chat.id, msg["max_price"])
     else:
         await bot.send_message(message.chat.id, msg["wrong_choice"])
 
 
 @bot.message_handler(state=SearchStates.return_date)
 async def return_date_get(message: Message, state: StateContext):
-    """Gets the return date from the user and asks if they want to filter the results."""
+    """Gets the return date from the user and asks for the minimum return time."""
     return_datetime = validate_date(message.text)
 
     if not return_datetime:
         await bot.send_message(message.chat.id, return_datetime.error_message)
     else:
         assert return_datetime.date is not None
-        await bot.send_message(
-            message.chat.id,
-            msg["confirm_date"].format(return_datetime.date.strftime("%d/%m/%Y %H:%M")),
-        )
-        await state.set(SearchStates.needs_filter)
+        await state.set(SearchStates.min_return_time)
         await state.add_data(return_date=return_datetime.date)
-        await bot.send_message(message.chat.id, msg["needs_filter"])
+        await bot.send_message(message.chat.id, msg["min_return_time"])
 
 
-@bot.message_handler(state=SearchStates.needs_filter)
-async def ask_for_filter(message: Message, state: StateContext):
-    """Asks the user if they want to filter the results and starts the search process if not."""
-    choice = parse_yes_no(message.text)
-    if choice is True:
-        await state.set(SearchStates.max_price)
-        await bot.send_message(message.chat.id, msg["max_price"])
-    elif choice is False:
-        await state.set(SearchStates.searching)
-        await bot.send_message(message.chat.id, msg["searching"])
-        async with state.data() as data: # type: ignore
-            await search_trains(message, state, data)
+@bot.message_handler(state=SearchStates.min_return_time)
+async def min_return_time_get(message: Message, state: StateContext):
+    """Gets the minimum return time and asks for the maximum return time."""
+    parsed = validate_time(message.text)
+
+    if not parsed:
+        await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        await bot.send_message(message.chat.id, msg["wrong_choice"])
+        async with state.data() as data:  # type: ignore
+            ret_date: datetime = data["return_date"]
+            if parsed.time is not None:
+                ret_date = ret_date.replace(hour=parsed.time.hour, minute=parsed.time.minute, second=0)
+            else:
+                ret_date = ret_date.replace(hour=0, minute=0, second=0)
+            await state.add_data(return_date=ret_date)
+
+        await state.set(SearchStates.max_return_time)
+        await bot.send_message(message.chat.id, msg["max_return_time"])
+
+
+@bot.message_handler(state=SearchStates.max_return_time)
+async def max_return_time_get(message: Message, state: StateContext):
+    """Gets the maximum return time and asks for price filter."""
+    parsed = validate_time(message.text)
+
+    if not parsed:
+        await bot.send_message(message.chat.id, parsed.error_message)
+    else:
+        await state.set(SearchStates.max_price)
+        await state.add_data(max_return_time=parsed.time)
+        await bot.send_message(message.chat.id, msg["max_price"])
 
 
 @bot.message_handler(state=SearchStates.max_price)
 async def ask_for_max_price(message: Message, state: StateContext):
-    """Asks the user for the maximum price and starts the search process."""
+    """Asks the user for the maximum price and asks for maximum duration."""
     parsed = validate_float(message.text)
 
     if not parsed:
@@ -243,29 +288,16 @@ async def ask_for_max_price(message: Message, state: StateContext):
 
 @bot.message_handler(state=SearchStates.max_duration_minutes)
 async def get_max_duration(message: Message, state: StateContext):
-    """Gets the maximum duration of the trip and asks for maximum departure time."""
+    """Gets the maximum duration of the trip and starts the search process."""
     parsed = validate_float(message.text)
 
     if not parsed:
         await bot.send_message(message.chat.id, parsed.error_message)
     else:
-        await state.set(SearchStates.max_departure_time)
-        await state.add_data(max_duration_minutes=None if parsed.number == 0 else parsed.number)
-        await bot.send_message(message.chat.id, msg["max_departure_time"])
-
-
-@bot.message_handler(state=SearchStates.max_departure_time)
-async def get_max_departure_time(message: Message, state: StateContext):
-    """Gets the maximum departure time and starts the search process."""
-    parsed = validate_time(message.text)
-
-    if not parsed:
-        await bot.send_message(message.chat.id, parsed.error_message)
-    else:
         await state.set(SearchStates.searching)
-        await state.add_data(max_departure_time=parsed.time)
+        await state.add_data(max_duration_minutes=None if parsed.number == 0 else parsed.number)
         await bot.send_message(message.chat.id, msg["searching"])
-        async with state.data() as data: # type: ignore
+        async with state.data() as data:  # type: ignore
             await search_trains(message, state, data)
 
 
@@ -291,7 +323,7 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
                                         departure_date=ctx["return_date"],
                                         max_duration_minutes=ctx.get("max_duration_minutes"),
                                         max_price=ctx.get("max_price"),
-                                        max_departure_time=ctx.get("max_departure_time"))
+                                        max_departure_time=ctx.get("max_return_time"))
 
     try:
         while not departure_done or not return_done:
@@ -331,4 +363,5 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
 bot.add_custom_filter(asyncio_filters.StateFilter(bot))
 bot.setup_middleware(StateMiddleware(bot))
 
-asyncio.run(bot.infinity_polling())
+if __name__ == "__main__":
+    asyncio.run(bot.infinity_polling())

@@ -71,8 +71,17 @@ class StationsStorage:
         if cls.stations is None:
             cls.stations = load_json(STATIONS_PATH)
 
-        guesses = process.extractBests(name, cls.stations.keys(), score_cutoff=90)
-        return [guess[0] for guess in guesses]
+        name_upper = name.strip().upper()
+        if name_upper in cls.stations:
+            return [name_upper]
+
+        guesses = process.extractBests(name_upper, cls.stations.keys(), score_cutoff=70)
+        fuzzy_matches = [guess[0] for guess in guesses]
+        if fuzzy_matches:
+            return fuzzy_matches
+
+        substring_matches = [k for k in cls.stations.keys() if name_upper in k]
+        return substring_matches
 
     @classmethod
     def get_all_stations(cls) -> Iterable[StationRecord]:
