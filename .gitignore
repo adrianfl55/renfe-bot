@@ -3,6 +3,7 @@ env.py
 config.ini
 estacionesEstaticas.js
 last_input.pkl
+funcionalidades.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
