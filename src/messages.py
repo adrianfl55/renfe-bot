@@ -40,9 +40,20 @@ user_messages = {
 
 def get_tickets_message(trains: List[TrainRideRecord], origin: StationRecord, destination: StationRecord):
     message = (
-        f"He encontrado varios billetes de {origin.name.title()} a "
+        f"🎉 *¡Atención! Billete disponible* de {origin.name.title()} a "
         f"{destination.name.title()}:\n\n"
     )
     for train in trains:
         message += str(train)
     return message
+
+
+def format_initial_train_status(trains: List[TrainRideRecord], origin: StationRecord, destination: StationRecord) -> str:
+    msg_str = f"📊 *Estado inicial de trenes ({origin.name.title()} ➔ {destination.name.title()}):*\n\n"
+    for train in trains:
+        dep_str = train.departure_time.strftime("%H:%M")
+        arr_str = train.arrival_time.strftime("%H:%M")
+        status_icon = "✅ *Plazas libres*" if train.available else "❌ *Completo (0 plazas libres)*"
+        price_str = f" - {train.price:.2f} €" if train.price > 0 else ""
+        msg_str += f"• 🚆 *{dep_str} ➔ {arr_str}* ({train.train_type}){price_str}\n  └ {status_icon}\n\n"
+    return msg_str

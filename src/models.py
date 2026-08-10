@@ -57,10 +57,9 @@ class TrainRideFilter(BaseModel):
     max_price: Optional[float] = None
     max_departure_time: Optional[time] = None
 
-    def filter_rides(self, rides: List[TrainRideRecord]) -> List[TrainRideRecord]:
-        """Filter a list of TrainRideRecord based on user preferences."""
+    def get_matching_rides(self, rides: List[TrainRideRecord], include_unavailable: bool = True) -> List[TrainRideRecord]:
+        """Filter a list of TrainRideRecord matching parameters, optionally including unavailable ones."""
         filtered_rides = []
-        unavailable_rides = 0
         for ride in rides:
             if ride.origin != self.origin or ride.destination != self.destination:
                 continue
@@ -74,13 +73,18 @@ class TrainRideFilter(BaseModel):
                 continue
             if self.max_price and ride.price > self.max_price:
                 continue
-            if not ride.available:
-                unavailable_rides += 1
+            if not include_unavailable and not ride.available:
                 continue
             filtered_rides.append(ride)
+        return filtered_rides
 
-        if len(filtered_rides) == 0 and unavailable_rides == 0:
+    def filter_rides(self, rides: List[TrainRideRecord]) -> List[TrainRideRecord]:
+        """Filter a list of available TrainRideRecord based on user preferences."""
+        all_matching = self.get_matching_rides(rides, include_unavailable=True)
+        available_matching = [r for r in all_matching if r.available]
+
+        if len(all_matching) == 0:
             raise InvalidTrainRideFilter(
                 f"The filter {self} didn't return any result, available or not."
             )
-        return filtered_rides
+        return available_matching

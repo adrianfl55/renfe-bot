@@ -16,7 +16,7 @@ from telebot.types import Message
 
 from config import get_bot_token
 from errors import InvalidDWRToken, InvalidTrainRideFilter
-from messages import user_messages as msg, get_tickets_message
+from messages import user_messages as msg, get_tickets_message, format_initial_train_status
 from models import TrainRideFilter, StationRecord
 from scraper import Scraper
 from validators import validate_station, validate_date, validate_float, validate_time, parse_yes_no
@@ -331,7 +331,7 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
     if ctx.get("max_duration_minutes"):
         summary += f"• *Duración máx:* {ctx['max_duration_minutes']} min\n"
 
-    summary += "\n🔎 *Rastreando plazas disponibles en Renfe...*"
+    summary += "\n🔎 *Consultando estado inicial en Renfe...*"
     await bot.send_message(message.chat.id, summary, parse_mode="Markdown")
 
     scraper = Scraper(ctx["origin"],
@@ -355,7 +355,47 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
                                         max_departure_time=ctx.get("max_return_time"))
 
     try:
+        initial_trains = scraper.get_trainrides()
+        matching_departure = departure_filter.get_matching_rides(initial_trains, include_unavailable=True)
+
+        if matching_departure:
+            status_msg = format_initial_train_status(matching_departure, ctx["origin"], ctx["destination"])
+            await bot.send_message(message.chat.id, status_msg, parse_mode="Markdown")
+
+            available_now = [t for t in matching_departure if t.available]
+            if available_now:
+                departure_done = True
+                await bot.send_message(message.chat.id,
+                                       get_tickets_message(available_now,
+                                                           ctx["origin"],
+                                                           ctx["destination"]),
+                                       parse_mode="Markdown")
+            else:
+                await bot.send_message(
+                    message.chat.id,
+                    "🔄 *Rastreando disponibilidad del tren en segundo plano...*\n"
+                    "Te avisaré inmediatamente en cuanto se libere una plaza.",
+                    parse_mode="Markdown"
+                )
+        else:
+            raise InvalidTrainRideFilter("No se encontraron trenes que coincidan con la búsqueda.")
+
+        if not return_done:
+            matching_return = return_filter.get_matching_rides(initial_trains, include_unavailable=True)
+            if matching_return:
+                status_ret_msg = format_initial_train_status(matching_return, ctx["destination"], ctx["origin"])
+                await bot.send_message(message.chat.id, status_ret_msg, parse_mode="Markdown")
+                available_ret_now = [t for t in matching_return if t.available]
+                if available_ret_now:
+                    return_done = True
+                    await bot.send_message(message.chat.id,
+                                           get_tickets_message(available_ret_now,
+                                                               ctx["destination"],
+                                                               ctx["origin"]),
+                                           parse_mode="Markdown")
+
         while not departure_done or not return_done:
+            await asyncio.sleep(60)
             trains = scraper.get_trainrides()
             if not departure_done:
                 departure_trains = departure_filter.filter_rides(trains)
@@ -364,7 +404,8 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
                     await bot.send_message(message.chat.id,
                                            get_tickets_message(departure_trains,
                                                                ctx["origin"],
-                                                               ctx["destination"]))
+                                                               ctx["destination"]),
+                                           parse_mode="Markdown")
             if not return_done:
                 return_trains = return_filter.filter_rides(trains)
                 return_done = len(return_trains) > 0
@@ -372,9 +413,8 @@ async def search_trains(message: Message, state: StateContext, ctx: Dict[str, An
                     await bot.send_message(message.chat.id,
                                            get_tickets_message(return_trains,
                                                                ctx["destination"],
-                                                               ctx["origin"]))
-            if not return_done or not departure_done:
-                await asyncio.sleep(60)
+                                                               ctx["origin"]),
+                                           parse_mode="Markdown")
         await state.delete()
 
     except InvalidTrainRideFilter:
